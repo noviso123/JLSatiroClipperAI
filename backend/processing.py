@@ -240,21 +240,30 @@ def process_video(url, settings):
         raw_cut_path = f"{work_dir}/raw_cut_{job_id}.mp4"
         raw_cut_audio = f"{work_dir}/raw_cut_{job_id}.wav"
 
-        subprocess.run([
-            'ffmpeg', '-threads', '4', '-ss', str(start_t), '-t', str(dur),
-            '-i', video_path,
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
-            raw_cut_path, '-y'
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        # TIMEOUT PROTECTION: 300s (5min) per cut max
+        try:
+            subprocess.run([
+                'ffmpeg', '-threads', '4', '-ss', str(start_t), '-t', str(dur),
+                '-i', video_path,
+                '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
+                raw_cut_path, '-y'
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300)
 
-        subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        except subprocess.TimeoutExpired:
+            yield f"⚠️ Corte {seg_num} demorou demais e foi pulado.", 0
+            continue # Skip this bad clip
 
         # Backup Raw to Drive
         try: shutil.copy(raw_cut_path, f"{drive_dir}/raw_cut_{job_id}.mp4")
         except: pass
 
         # 5. Production Transcription
-        clip_words = get_transcription(raw_cut_audio, model_path)
+        try:
+            clip_words = get_transcription(raw_cut_audio, model_path)
+        except:
+             yield f"⚠️ Erro Transcrição {seg_num}. Pulando.", 0; continue
 
         ass_path = f"{work_dir}/subs_{job_id}.ass"
         ass_content = generate_karaoke_ass(clip_words)
@@ -263,7 +272,10 @@ def process_video(url, settings):
         # 6. Burn
         subtitled_cut = f"{work_dir}/main_clip_{job_id}.mp4"
         vf = f"ass={ass_path}"
-        subprocess.run(['ffmpeg', '-threads', '4', '-i', raw_cut_path, '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', subtitled_cut, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        try:
+            subprocess.run(['ffmpeg', '-threads', '4', '-i', raw_cut_path, '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', subtitled_cut, '-y'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300)
+        except subprocess.TimeoutExpired: continue
 
         # 7. Hook & Thumb
         raw_hook = f"{work_dir}/hook_raw_{job_id}.mp4"
@@ -294,7 +306,10 @@ def process_video(url, settings):
                 f.write(f"file '{abs_hook}'\n")
             f.write(f"file '{abs_main}'\n")
 
-        subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out_local, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out_local, '-y'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        except: pass
 
         if os.path.exists(final_out_local) and os.path.getsize(final_out_local) > 1000:
             # 9. FINAL COPY TO DRIVE (The most important step)
