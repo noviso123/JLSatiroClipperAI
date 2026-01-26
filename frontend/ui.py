@@ -27,7 +27,7 @@ def scan_gallery():
     # Gradio Gallery expects a list of (path, label) tuples or just paths
     return clips
 
-def start_processing(url, model_type, burn_subs):
+def start_processing(url, model_type, burn_subs, progress=gr.Progress()):
     """Generator function for Gradio Output"""
     if not url:
         yield "⚠️ Erro: URL Vazia", []
@@ -43,13 +43,18 @@ def start_processing(url, model_type, burn_subs):
     log_history = ""
 
     # Clean Start
+    progress(0, desc="Iniciando...")
     yield "🚀 Iniciando Fábrica...", scan_gallery()
 
     try:
         for result in processing.process_video(url, settings):
             if isinstance(result, tuple):
-                status, progress = result
-                log_history = f"[{progress}%] {status}\n" + log_history
+                status, pct = result
+                # Update Visual Bar
+                progress(pct / 100, desc=status)
+
+                # Update Text Log
+                log_history = f"[{pct}%] {status}\n" + log_history
                 yield log_history, scan_gallery()
 
             elif isinstance(result, str):
@@ -58,6 +63,7 @@ def start_processing(url, model_type, burn_subs):
                 yield log_history, scan_gallery()
 
         log_history = "✨ PROCESSAMENTO FINALIZADO COM SUCESSO!\n" + log_history
+        progress(1, desc="Concluído!")
         yield log_history, scan_gallery()
 
     except Exception as e:
