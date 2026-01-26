@@ -148,9 +148,10 @@ if not existing_clips:
     st.info("Nenhum corte encontrado na pasta. Gere o primeiro acima! 👆")
 else:
     # MANAGEMENT TOOL
-    with st.expander("🛠️ Gerenciar Arquivos"):
-        selected_files = st.multiselect("Selecione vídeos para apagar:", existing_clips, format_func=lambda x: os.path.basename(x))
-        if st.button("🗑️ Apagar Selecionados"):
+    with st.expander("🛠️ Gerenciar Arquivos / ZONA DE PERIGO"):
+        st.subheader("🗑️ Seleção")
+        selected_files = st.multiselect("Selecione vídeos para remover:", existing_clips, format_func=lambda x: os.path.basename(x))
+        if st.button("Apagar Selecionados"):
             if selected_files:
                 count = 0
                 for f in selected_files:
@@ -160,6 +161,39 @@ else:
                     except: pass
                 st.success(f"{count} Vídeos apagados!")
                 time.sleep(1)
+                st.rerun()
+
+        st.markdown("---")
+        st.subheader("🚨 RESET GERAL (CUIDADO)")
+        st.caption("Esta ação apaga TODOS os vídeos da pasta, limpa o cache e reinicia o sistema.")
+
+        # Double confirmation via columns to avoid accidental clicks while keeping it visible
+        col_danger_1, col_danger_2 = st.columns([3, 1])
+        with col_danger_1:
+             confirm_reset = st.checkbox("Sim, quero apagar TUDO e formatar o sistema.")
+        with col_danger_2:
+             if st.button("🔥 FORMATAR AGORA", type="primary", disabled=not confirm_reset):
+                st.warning("🧹 Limpando sistema...")
+
+                # 1. Clean Drive/Downloads
+                try:
+                    folder = "downloads"
+                    for filename in os.listdir(folder):
+                        file_path = os.path.join(folder, filename)
+                        if os.path.isfile(file_path) or os.path.islink(file_path): os.unlink(file_path)
+                        elif os.path.isdir(file_path): shutil.rmtree(file_path)
+                except Exception as e: print(e)
+
+                # 2. Clean Local SSD
+                try: shutil.rmtree("/content/temp_work")
+                except: pass
+
+                # 3. Clean Cache
+                st.cache_data.clear()
+                st.cache_resource.clear()
+
+                st.success("✨ Sistema Formatado! Recarregando...")
+                time.sleep(2)
                 st.rerun()
 
     # DISPLAY LOOP
