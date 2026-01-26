@@ -91,8 +91,8 @@ def delete_all():
         return f"Erro ao limpar: {e}", scan_gallery()
 
 # --- INTERFACE ---
-with gr.Blocks(title="JLSatiro AI Studio V12.3", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🎬 JLSatiro Clipper AI - V12.3 (STABLE LOGS)")
+with gr.Blocks(title="JLSatiro AI Studio V12.4", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🎬 JLSatiro Clipper AI - V12.4 (INSTANT UI FIX)")
     gr.Markdown("### ⚡ Sistema de Cortes Virais Automáticos (Google API + Cookies)")
 
     with gr.Row():

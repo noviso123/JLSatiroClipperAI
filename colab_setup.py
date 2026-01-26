@@ -13,7 +13,7 @@ def run_command(command):
         pass
 
 def main():
-    print("🚀 [Auto-Update] Iniciando Configuração do Ambiente V12.3 (STABLE UI)...")
+    print("🚀 [Auto-Update] Iniciando Configuração do Ambiente V12.4 (INSTANT UI)...")
 
     # 0. DRIVE DEEP INTEGRATION
     print("☁️ [0/4] Conectando Google Drive (Modo Produção)...")
