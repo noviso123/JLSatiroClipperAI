@@ -240,20 +240,27 @@ def process_video(url, settings):
         raw_cut_path = f"{work_dir}/raw_cut_{job_id}.mp4"
         raw_cut_audio = f"{work_dir}/raw_cut_{job_id}.wav"
 
-        # TIMEOUT PROTECTION: 300s (5min) per cut max
+        # FIX SYNC/SLOWMO: Force 30fps (CFR) and use 'veryfast' instead of 'ultrafast'
+        # -r 30: Forces standardized framerate
+        # -vsync cfr: Enforces constant frame rate (prevents drift)
+        # -max_muxing_queue_size 1024: Prevents buffer underflows
         try:
             subprocess.run([
-                'ffmpeg', '-threads', '4', '-ss', str(start_t), '-t', str(dur),
+                'ffmpeg', '-threads', '4',
+                '-ss', str(start_t), '-t', str(dur),
                 '-i', video_path,
-                '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
+                '-r', '30', '-vsync', 'cfr',
+                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                '-c:a', 'aac', '-ar', '44100',
+                '-max_muxing_queue_size', '4096',
                 raw_cut_path, '-y'
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300)
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
 
             subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
         except subprocess.TimeoutExpired:
             yield f"⚠️ Corte {seg_num} demorou demais e foi pulado.", 0
-            continue # Skip this bad clip
+            continue
 
         # Backup Raw to Drive
         try: shutil.copy(raw_cut_path, f"{drive_dir}/raw_cut_{job_id}.mp4")
@@ -273,8 +280,15 @@ def process_video(url, settings):
         subtitled_cut = f"{work_dir}/main_clip_{job_id}.mp4"
         vf = f"ass={ass_path}"
         try:
-            subprocess.run(['ffmpeg', '-threads', '4', '-i', raw_cut_path, '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', subtitled_cut, '-y'],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=300)
+            # Re-enforce r 30 here to be safe during burn
+            subprocess.run(['ffmpeg', '-threads', '4',
+                           '-i', raw_cut_path,
+                           '-vf', vf,
+                           '-r', '30', '-vsync', 'cfr',
+                           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                           '-c:a', 'copy',
+                           subtitled_cut, '-y'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
         except subprocess.TimeoutExpired: continue
 
         # 7. Hook & Thumb
