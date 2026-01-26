@@ -13,7 +13,7 @@ def run_command(command):
         pass
 
 def main():
-    print("💎 [Auto-Update] JLSatiro Setup V16.0 (GPU EDITION)...")
+    print("💎 [Auto-Update] JLSatiro Setup V16.1 (ULTIMATE)...")
 
     # 0. DRIVE DEEP INTEGRATION
     print("☁️ [0/4] Conectando Google Drive (Modo Produção)...")
