@@ -4,6 +4,8 @@ import wave
 import subprocess
 import datetime
 import random
+import time
+import shutil
 import yt_dlp
 import asyncio
 import edge_tts
@@ -21,7 +23,6 @@ def get_cached_model(model_path):
     return _CACHED_MODEL
 
 # --- Helpers ---
-
 def seconds_to_ass_time(seconds):
     hours = int(seconds / 3600)
     minutes = int((seconds % 3600) / 60)
@@ -68,8 +69,8 @@ async def generate_narrator_audio(text, output_file):
     communicate = edge_tts.Communicate(text, voice)
     await communicate.save(output_file)
 
-def create_narrator_hook(hook_video, output_hook, phrase):
-    narrator_audio = "narrator.mp3"
+def create_narrator_hook(hook_video, output_hook, phrase, job_id):
+    narrator_audio = f"narrator_{job_id}.mp3"
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(generate_narrator_audio(phrase, narrator_audio))
@@ -86,10 +87,18 @@ def create_narrator_hook(hook_video, output_hook, phrase):
     if os.path.exists(output_hook): return output_hook
     return hook_video
 
-def generate_thumbnail(video_path, output_path, text="VIRAL CLIP"):
+def generate_thumbnail(video_path, output_path, unique_id, text="VIRAL CLIP"):
     try:
         frame_jpg = output_path.replace(".mp4", ".jpg")
-        subprocess.run(['ffmpeg', '-ss', '00:00:30', '-i', video_path, '-frames:v', '1', '-q:v', '2', frame_jpg, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Try to extract frame from middle of source to be unique
+        # Get duration first? Assume we have access or just pick random offset?
+        # Actually video_path here is the original full video. We need the RAW CUT path preferably to be relevant.
+        # But hook function receives raw video path? Wait.
+        # In main loop, we pass valid path.
+
+        # Taking frame at 30% of the clip duration.
+        subprocess.run(['ffmpeg', '-ss', '2', '-i', video_path, '-frames:v', '1', '-q:v', '2', frame_jpg, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
         if not os.path.exists(frame_jpg): return None
         img = Image.open(frame_jpg)
         draw = ImageDraw.Draw(img)
@@ -101,14 +110,16 @@ def generate_thumbnail(video_path, output_path, text="VIRAL CLIP"):
         if not font: font = ImageFont.load_default()
         W, H = img.size; w_text, h_text = 600, 150; x, y = (W - w_text)/2, (H - h_text)/2
         draw.text((x, y), text, fill="yellow", stroke_width=3, stroke_fill="black", font=font)
+
+        # Add Unique ID visual ? No just text.
+
         img.save(frame_jpg)
         subprocess.run(['ffmpeg', '-loop', '1', '-i', frame_jpg, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-c:v', 'libx264', '-t', '0.1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', output_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return output_path
     except: return None
 
 def get_transcription(audio_path, model_path):
-    """Reusable transcription function with Caching"""
-    model = get_cached_model(model_path) # USE CACHE
+    model = get_cached_model(model_path)
     wf = wave.open(audio_path, "rb")
     rec = KaldiRecognizer(model, wf.getframerate())
     rec.SetWords(True)
@@ -124,9 +135,9 @@ def get_transcription(audio_path, model_path):
     wf.close()
     return all_words
 
-def cleanup_temps(folder):
-    """Deletes large intermediate files"""
-    temps = ["input_video.mp4", "input_audio.wav", "raw_cut.mp4", "raw_cut.wav", "hook_raw.mp4", "hook.mp4", "main_clip.mp4", "thumb.mp4", "thumb.jpg", "list.txt", "narrator.mp3"]
+def cleanup_temps(folder, job_id):
+    """Deletes large intermediate files for a specific job"""
+    temps = [f"raw_cut_{job_id}.mp4", f"raw_cut_{job_id}.wav", f"hook_raw_{job_id}.mp4", f"hook_{job_id}.mp4", f"main_clip_{job_id}.mp4", f"thumb_{job_id}.mp4", f"list_{job_id}.txt"]
     for f in temps:
         p = os.path.join(folder, f)
         if os.path.exists(p): os.remove(p)
@@ -135,11 +146,13 @@ def process_video(url, settings):
     settings['lang'] = 'Português (BR)'
     output_dir = "downloads"
     os.makedirs(output_dir, exist_ok=True)
+
+    # Files
     video_path = f"{output_dir}/input_video.mp4"
     audio_path = f"{output_dir}/input_audio.wav"
 
     # 1. Download
-    yield "⬇️ Baixando vídeo...", 10
+    yield "⬇️ Baixando vídeo...", 5
     ydl_opts = {'format': 'best[ext=mp4]', 'outtmpl': video_path, 'quiet': True, 'no_warnings': True}
     if os.path.exists(video_path): os.remove(video_path)
     try:
@@ -147,77 +160,121 @@ def process_video(url, settings):
     except Exception as e: yield f"❌ Erro Download: {e}", 0; return
 
     # 2. Extract Full Audio (for Discovery)
-    yield "🔊 Lendo Áudio Original...", 20
+    yield "🔊 Lendo Áudio Original...", 10
     subprocess.run(['ffmpeg', '-threads', '4', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # 3. Discovery Transcription (Find Cut Points)
-    yield "🧠 Analisando Corte (Scan Rápido)...", 40
+    # 3. Discovery Transcription
+    yield "🧠 Mapeando Conteúdo...", 20
     model_path = "model"
     if not os.path.exists(model_path): yield "❌ Modelo não encontrado!", 0; return
 
     full_words = get_transcription(audio_path, model_path)
-    if not full_words: yield "⚠️ Silêncio detectado.", 100; return video_path
+    if not full_words: yield "⚠️ Silêncio detectado.", 100; return
 
-    # Smart Cut Logic
-    TARGET_MIN = 60.0
-    start_time = 0.0
-    cut_end = full_words[-1]['end']
-    for word in full_words:
-        if word['end'] > TARGET_MIN: cut_end = word['end']; break
+    # --- SEGMENTATION LOGIC ---
+    segments = []
+    current_start_word = 0
+    TARGET_DURATION = 60.0 # Minimum
 
-    # 4. RENDER RAW CUT (Video + Audio)
-    yield "✂️ Cortando Clipe Bruto...", 50
-    raw_cut_path = f"{output_dir}/raw_cut.mp4"
-    raw_cut_audio = f"{output_dir}/raw_cut.wav"
+    while current_start_word < len(full_words):
+        start_time = full_words[current_start_word]['start']
+        target_end = start_time + TARGET_DURATION
 
-    subprocess.run([
-        'ffmpeg', '-threads', '4', '-ss', str(start_time), '-t', str(cut_end - start_time),
-        '-i', video_path,
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
-        raw_cut_path, '-y'
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        # Find best end point (pause or max word)
+        best_end_idx = -1
 
-    subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Look ahead
+        for i in range(current_start_word, len(full_words)):
+            w = full_words[i]
+            if w['end'] >= target_end:
+                best_end_idx = i
+                # Try to find a pause if possible within next 10s
+                for j in range(i, min(len(full_words), i+30)):
+                    w_curr = full_words[j]
+                    w_next = full_words[j+1] if j+1 < len(full_words) else None
+                    if w_next:
+                        pause = w_next['start'] - w_curr['end']
+                        if pause > 0.5: # Good pause
+                            best_end_idx = j
+                            break
+                break
 
-    # 5. PRODUCTION TRANSCRIPTION (Double Pass)
-    yield "🎙️ Sincronizando Legendas (Passo 2)...", 60
-    clip_words = get_transcription(raw_cut_audio, model_path) # Uses cached model
+        if best_end_idx == -1: # Take the rest
+            best_end_idx = len(full_words) - 1
 
-    ass_path = f"{output_dir}/subs.ass"
-    ass_content = generate_karaoke_ass(clip_words)
-    with open(ass_path, "w", encoding="utf-8") as f: f.write(ass_content)
+        # Create segment
+        seg_end_time = full_words[best_end_idx]['end']
 
-    # 6. Burn Subtitles
-    yield "🔥 Queimando Legendas...", 70
-    subtitled_cut = f"{output_dir}/main_clip.mp4"
-    vf = f"ass={ass_path}"
-    subprocess.run(['ffmpeg', '-threads', '4', '-i', raw_cut_path, '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', subtitled_cut, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if (seg_end_time - start_time) >= 10.0: # Ignore tiny final chunks
+            segments.append({'start': start_time, 'end': seg_end_time})
 
-    # 7. Hook & Narrator
-    yield "🗣️ Criando Hook com Narrador...", 85
-    raw_hook = f"{output_dir}/hook_raw.mp4"
-    hook_start = (cut_end - start_time) * 0.2
-    subprocess.run(['ffmpeg', '-ss', str(hook_start), '-t', '3', '-i', subtitled_cut, '-c', 'copy', raw_hook, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    final_hook = f"{output_dir}/hook.mp4"
-    phrases = ["Olha só o que aconteceu!", "Você não vai acreditar!", "Assista até o final!", "Isso é incrível!", "Segredo revelado!"]
-    create_narrator_hook(raw_hook, final_hook, random.choice(phrases))
+        current_start_word = best_end_idx + 1
+        if current_start_word >= len(full_words): break
 
-    thumb_out = f"{output_dir}/thumb.mp4"
-    generate_thumbnail(video_path, thumb_out)
+    total_segs = len(segments)
+    yield f"📐 Estratégia Definida: {total_segs} Cortes Identificados.", 30
 
-    # 8. Final Concat
-    yield "🎬 Montagem Final...", 95
-    final_out = f"{output_dir}/viral_clip_final.mp4"
-    list_txt = f"{output_dir}/list.txt"
-    with open(list_txt, 'w') as f:
-        if os.path.exists(thumb_out): f.write(f"file 'thumb.mp4'\n")
-        if os.path.exists(final_hook): f.write(f"file 'hook.mp4'\n")
-        f.write(f"file 'main_clip.mp4'\n")
-    subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # --- PROCESSING LOOP ---
+    for idx, seg in enumerate(segments):
+        job_id = f"{int(time.time())}_{idx+1}"
+        seg_num = idx + 1
 
-    if os.path.exists(final_out):
-        yield "🧹 Limpando Arquivos Temporários...", 98
-        cleanup_temps(output_dir)
-        yield "✅ Concluído!", 100
-        return final_out
-    else: yield "❌ Erro.", 0; return None
+        yield f"✂️ Processando Corte {seg_num}/{total_segs}...", 40 + int(20 * (idx/total_segs))
+
+        start_t = seg['start']
+        dur = seg['end'] - start_t
+
+        # 4. Render Raw Cut
+        raw_cut_path = f"{output_dir}/raw_cut_{job_id}.mp4"
+        raw_cut_audio = f"{output_dir}/raw_cut_{job_id}.wav"
+
+        subprocess.run([
+            'ffmpeg', '-threads', '4', '-ss', str(start_t), '-t', str(dur),
+            '-i', video_path,
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
+            raw_cut_path, '-y'
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+        subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        # 5. Production Transcription (Double Pass)
+        clip_words = get_transcription(raw_cut_audio, model_path)
+
+        ass_path = f"{output_dir}/subs_{job_id}.ass"
+        ass_content = generate_karaoke_ass(clip_words)
+        with open(ass_path, "w", encoding="utf-8") as f: f.write(ass_content)
+
+        # 6. Burn
+        subtitled_cut = f"{output_dir}/main_clip_{job_id}.mp4"
+        vf = f"ass={ass_path}"
+        subprocess.run(['ffmpeg', '-threads', '4', '-i', raw_cut_path, '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', subtitled_cut, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+        # 7. Hook & Thumb
+        raw_hook = f"{output_dir}/hook_raw_{job_id}.mp4"
+        # Hook from 10% of this specific clip
+        hook_start = dur * 0.15
+        subprocess.run(['ffmpeg', '-ss', str(hook_start), '-t', '3', '-i', subtitled_cut, '-c', 'copy', raw_hook, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        final_hook = f"{output_dir}/hook_{job_id}.mp4"
+        phrases = ["Olha só o que aconteceu!", "Você não vai acreditar!", "Assista até o final!", "Isso é incrível!", "Segredo revelado!"]
+        create_narrator_hook(raw_hook, final_hook, random.choice(phrases), job_id)
+
+        thumb_out = f"{output_dir}/thumb_{job_id}.mp4"
+        # Generate thumbnail from RAWCUT (clean)
+        generate_thumbnail(raw_cut_path, thumb_out, job_id, text=f"PARTE {seg_num}")
+
+        # 8. Concat
+        final_out = f"{output_dir}/viral_clip_{seg_num}_{job_id}.mp4"
+        list_txt = f"{output_dir}/list_{job_id}.txt"
+        with open(list_txt, 'w') as f:
+            if os.path.exists(thumb_out): f.write(f"file 'thumb_{job_id}.mp4'\n")
+            if os.path.exists(final_hook): f.write(f"file 'hook_{job_id}.mp4'\n")
+            f.write(f"file 'main_clip_{job_id}.mp4'\n")
+
+        subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        if os.path.exists(final_out):
+            cleanup_temps(output_dir, job_id) # Clean ONLY this job's temps
+            yield final_out # YIELD THE FILE PATH
+
+    yield "✅ Processamento de Lote Completado!", 100
