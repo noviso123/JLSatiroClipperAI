@@ -3,6 +3,7 @@ yt-dlp>=2023.11.16
 ffmpeg-python
 openai-whisper
 torch
+cuda-python
 moviepy
 numpy
 pillow

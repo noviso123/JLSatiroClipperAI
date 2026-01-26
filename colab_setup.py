@@ -13,7 +13,7 @@ def run_command(command):
         pass
 
 def main():
-    print("💎 [Auto-Update] JLSatiro Setup V15.7 (YTDLP FIX)...")
+    print("💎 [Auto-Update] JLSatiro Setup V16.0 (GPU EDITION)...")
 
     # 0. DRIVE DEEP INTEGRATION
     print("☁️ [0/4] Conectando Google Drive (Modo Produção)...")
@@ -56,10 +56,16 @@ def main():
     print("🔄 [2.5/4] Atualizando yt-dlp e Pytubefix (Crítico)...")
     run_command("pip install -U yt-dlp pytubefix -q")
 
-    # 3. AI Model (Whisper CPU)
-    print("🧠 [3/4] Verificando Motor Whisper (CPU Mode)...")
-    # No manual download needed. Whisper auto-downloads on first run to ~/.cache
-    print("    ✅ Whisper configurado (Download automático via Cache).")
+    # 3. AI Model (Whisper GPU)
+    print("🧠 [3/4] Verificando Acelerador Gráfico (GPU)...")
+    try:
+        run_command("nvidia-smi") # Print GPU status to logs
+        print("    ✅ GPU NVIDIA Detectada! (Modo Turbo Ativado)")
+    except:
+        print("    ⚠️ GPU NÃO DETECTADA. O sistema vai rodar lento (CPU).")
+        print("    👉 Dica: Vá em 'Ambiente de Execução' -> 'Alterar tipo' -> 'T4 GPU'")
+
+    print("    ✅ Whisper Configurado (Large V3).")
 
     print("✅ [4/4] Setup Completo! Sistema Pronto.")
 

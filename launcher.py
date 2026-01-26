@@ -2,7 +2,7 @@ import os
 import subprocess
 
 def main():
-    print("💎 [Launcher] Iniciando JLSatiro Cobalt V15.7 (STABLE)...")
+    print("💎 [Launcher] Iniciando JLSatiro Cobalt V16.0 (GPU)...")
     print("🔄 Verificando Atualizações...")
     try: subprocess.run("git pull origin main", shell=True)
     except: pass

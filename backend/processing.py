@@ -16,23 +16,30 @@ _CACHED_MODEL = None
 def get_cached_model():
     global _CACHED_MODEL
     if _CACHED_MODEL is None:
-        print(f"🔄 Carregando Modelo WHISPER (Small - CPU Optimized)...")
-        # V15.5: CPU Optimization Enforced
-        # 'small' is lightweight (ideal for Colab Free).
-        # device='cpu' and fp16=False prevents crashes.
-        _CACHED_MODEL = whisper.load_model("small", device="cpu")
+        print(f"🔄 Carregando Modelo WHISPER (Large V3 - GPU T4 Optimized)...")
+        # V16.0: UNLEASH THE BEAST
+        # 'large-v3' is the best model. 'cuda' uses the T4 GPU.
+        try:
+            _CACHED_MODEL = whisper.load_model("large-v3", device="cuda")
+        except Exception as e:
+            print(f"⚠️ GPU não detectada. Fallback para CPU (Small)... Erro: {e}")
+            _CACHED_MODEL = whisper.load_model("small", device="cpu")
     return _CACHED_MODEL
 
 def get_transcription(audio_path, dummy_path=None):
     """
-    Transcribes audio using OpenAI Whisper.
+    Transcribes audio using OpenAI Whisper (GPU Accelerated).
     Returns list of dicts: {'word': str, 'start': float, 'end': float, 'conf': float}
     """
     model = get_cached_model()
 
-    # Transcribe with word timestamps (Crucial for karaoke)
-    print(f"🎤 Ouvindo áudio (CPU Mode)... {os.path.basename(audio_path)}")
-    result = model.transcribe(audio_path, language="pt", word_timestamps=True, fp16=False)
+    # Check if we are really on GPU
+    is_cpu = model.device.type == "cpu"
+
+    print(f"🎤 Ouvindo áudio ({'CPU' if is_cpu else 'GPU'} Mode)... {os.path.basename(audio_path)}")
+
+    # fp16=True is safe on T4/Tesla GPUs
+    result = model.transcribe(audio_path, language="pt", word_timestamps=True, fp16=not is_cpu)
 
     all_words = []
     for segment in result["segments"]:
