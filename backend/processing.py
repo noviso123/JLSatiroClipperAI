@@ -171,6 +171,7 @@ def process_video(url, settings):
         'no_warnings': True,
         'overwrites': True,
         'nocheckcertificate': True,
+        'source_address': '0.0.0.0', # Force IPv4 (Fixes many Colab blocks)
     }
 
     # Inject Cookies if provided in settings
@@ -183,7 +184,12 @@ def process_video(url, settings):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
-    except Exception as e: yield f"❌ Erro Download: {e}", 0; return
+    except Exception as e:
+        if "Sign in" in str(e):
+            yield "❌ BLOQUEIO DO YOUTUBE DETECTADO!\n⚠️ Você PRECISA fazer upload do arquivo 'cookies.txt' na aba 'Desbloqueio'.", 0
+        else:
+            yield f"❌ Erro Download: {e}", 0
+        return
 
     # Sync Input to Drive
     try: shutil.copy(video_path, f"{drive_dir}/input_video.mp4")
