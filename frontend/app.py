@@ -107,8 +107,13 @@ if st.button("🚀 Iniciar Fábrica de Cortes"):
             for result in processing.process_video(video_url, settings):
                 if isinstance(result, tuple):
                     status_text, progress_val = result
-                    status_container.write(f"⚙️ {status_text}")
+                    # Explicit Numeric Progress
+                    status_container.markdown(f"**{progress_val}%** - {status_text}")
                     progress_bar.progress(progress_val)
+
+                    # Check for Warning/Error messages in status
+                    if "⚠️" in status_text or "❌" in status_text:
+                        st.warning(status_text)
 
                 elif isinstance(result, str): # Found a FILE PATH (Finished Clip)
                     file_path = result
