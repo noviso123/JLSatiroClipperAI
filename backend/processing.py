@@ -144,20 +144,33 @@ def cleanup_temps(folder, job_id):
 
 def process_video(url, settings):
     settings['lang'] = 'Português (BR)'
-    output_dir = "downloads"
-    os.makedirs(output_dir, exist_ok=True)
 
-    # Files
-    video_path = f"{output_dir}/input_video.mp4"
-    audio_path = f"{output_dir}/input_audio.wav"
+    # WORKSPACE STRATEGY:
+    # 1. Work in Local SSD (Fast/Stable)
+    # 2. Sync to Drive (Symlinked 'downloads' folder) for persistence
+
+    work_dir = "/content/temp_work" # Local SSD
+    drive_dir = "downloads" # Points to Drive via Symlink
+
+    if os.path.exists(work_dir): shutil.rmtree(work_dir)
+    os.makedirs(work_dir, exist_ok=True)
+    os.makedirs(drive_dir, exist_ok=True) # Ensure symlink or folder exists
+
+    # Files (Local)
+    video_path = f"{work_dir}/input_video.mp4"
+    audio_path = f"{work_dir}/input_audio.wav"
 
     # 1. Download
-    yield "⬇️ Baixando vídeo...", 5
+    yield "⬇️ Baixando vídeo (SSD Local)...", 5
     ydl_opts = {'format': 'best[ext=mp4]', 'outtmpl': video_path, 'quiet': True, 'no_warnings': True}
-    if os.path.exists(video_path): os.remove(video_path)
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
     except Exception as e: yield f"❌ Erro Download: {e}", 0; return
+
+    # Sync Input to Drive
+    try: shutil.copy(video_path, f"{drive_dir}/input_video.mp4")
+    except: pass
 
     # 2. Extract Full Audio (for Discovery)
     yield "🔊 Lendo Áudio Original...", 10
@@ -179,16 +192,11 @@ def process_video(url, settings):
     while current_start_word < len(full_words):
         start_time = full_words[current_start_word]['start']
         target_end = start_time + TARGET_DURATION
-
-        # Find best end point (pause or max word)
         best_end_idx = -1
-
-        # Look ahead
         for i in range(current_start_word, len(full_words)):
             w = full_words[i]
             if w['end'] >= target_end:
                 best_end_idx = i
-                # Try to find a pause if possible within next 10s
                 for j in range(i, min(len(full_words), i+30)):
                     w_curr = full_words[j]
                     w_next = full_words[j+1] if j+1 < len(full_words) else None
@@ -199,13 +207,10 @@ def process_video(url, settings):
                             break
                 break
 
-        if best_end_idx == -1: # Take the rest
-            best_end_idx = len(full_words) - 1
-
-        # Create segment
+        if best_end_idx == -1: best_end_idx = len(full_words) - 1
         seg_end_time = full_words[best_end_idx]['end']
 
-        if (seg_end_time - start_time) >= 10.0: # Ignore tiny final chunks
+        if (seg_end_time - start_time) >= 10.0:
             segments.append({'start': start_time, 'end': seg_end_time})
 
         current_start_word = best_end_idx + 1
@@ -225,8 +230,8 @@ def process_video(url, settings):
         dur = seg['end'] - start_t
 
         # 4. Render Raw Cut
-        raw_cut_path = f"{output_dir}/raw_cut_{job_id}.mp4"
-        raw_cut_audio = f"{output_dir}/raw_cut_{job_id}.wav"
+        raw_cut_path = f"{work_dir}/raw_cut_{job_id}.mp4"
+        raw_cut_audio = f"{work_dir}/raw_cut_{job_id}.wav"
 
         subprocess.run([
             'ffmpeg', '-threads', '4', '-ss', str(start_t), '-t', str(dur),
@@ -237,44 +242,67 @@ def process_video(url, settings):
 
         subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # 5. Production Transcription (Double Pass)
+        # Backup Raw to Drive
+        try: shutil.copy(raw_cut_path, f"{drive_dir}/raw_cut_{job_id}.mp4")
+        except: pass
+
+        # 5. Production Transcription
         clip_words = get_transcription(raw_cut_audio, model_path)
 
-        ass_path = f"{output_dir}/subs_{job_id}.ass"
+        ass_path = f"{work_dir}/subs_{job_id}.ass"
         ass_content = generate_karaoke_ass(clip_words)
         with open(ass_path, "w", encoding="utf-8") as f: f.write(ass_content)
 
         # 6. Burn
-        subtitled_cut = f"{output_dir}/main_clip_{job_id}.mp4"
+        subtitled_cut = f"{work_dir}/main_clip_{job_id}.mp4"
         vf = f"ass={ass_path}"
         subprocess.run(['ffmpeg', '-threads', '4', '-i', raw_cut_path, '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', subtitled_cut, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
         # 7. Hook & Thumb
-        raw_hook = f"{output_dir}/hook_raw_{job_id}.mp4"
-        # Hook from 10% of this specific clip
+        raw_hook = f"{work_dir}/hook_raw_{job_id}.mp4"
         hook_start = dur * 0.15
         subprocess.run(['ffmpeg', '-ss', str(hook_start), '-t', '3', '-i', subtitled_cut, '-c', 'copy', raw_hook, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        final_hook = f"{output_dir}/hook_{job_id}.mp4"
+        final_hook = f"{work_dir}/hook_{job_id}.mp4"
         phrases = ["Olha só o que aconteceu!", "Você não vai acreditar!", "Assista até o final!", "Isso é incrível!", "Segredo revelado!"]
         create_narrator_hook(raw_hook, final_hook, random.choice(phrases), job_id)
 
-        thumb_out = f"{output_dir}/thumb_{job_id}.mp4"
-        # Generate thumbnail from RAWCUT (clean)
+        thumb_out = f"{work_dir}/thumb_{job_id}.mp4"
         generate_thumbnail(raw_cut_path, thumb_out, job_id, text=f"PARTE {seg_num}")
 
         # 8. Concat
-        final_out = f"{output_dir}/viral_clip_{seg_num}_{job_id}.mp4"
-        list_txt = f"{output_dir}/list_{job_id}.txt"
+        yield f"🎬 Montagem Final (Parte {seg_num})...", 95
+        final_out_local = f"{work_dir}/viral_clip_{seg_num}_{job_id}.mp4"
+        list_txt = f"{work_dir}/list_{job_id}.txt"
+
+        # ABSOLUTE PATHS for local concat
+        abs_thumb = os.path.abspath(thumb_out)
+        abs_hook = os.path.abspath(final_hook)
+        abs_main = os.path.abspath(subtitled_cut)
+
         with open(list_txt, 'w') as f:
-            if os.path.exists(thumb_out): f.write(f"file 'thumb_{job_id}.mp4'\n")
-            if os.path.exists(final_hook): f.write(f"file 'hook_{job_id}.mp4'\n")
-            f.write(f"file 'main_clip_{job_id}.mp4'\n")
+            if os.path.exists(thumb_out) and os.path.getsize(thumb_out) > 0:
+                f.write(f"file '{abs_thumb}'\n")
+            if os.path.exists(final_hook) and os.path.getsize(final_hook) > 0:
+                f.write(f"file '{abs_hook}'\n")
+            f.write(f"file '{abs_main}'\n")
 
-        subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out_local, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        if os.path.exists(final_out):
-            cleanup_temps(output_dir, job_id) # Clean ONLY this job's temps
-            yield final_out # YIELD THE FILE PATH
+        if os.path.exists(final_out_local) and os.path.getsize(final_out_local) > 1000:
+            # 9. FINAL COPY TO DRIVE (The most important step)
+            final_out_drive = f"{drive_dir}/viral_clip_{seg_num}_{job_id}.mp4"
+            shutil.copy(final_out_local, final_out_drive)
+
+            # Clean Local Temps
+            cleanup_temps(work_dir, job_id)
+
+            # Yield the DRIVE Path (so the user can download it from Streamlit which looks at 'downloads' symlink)
+            # Actually, Streamlit 'st.download_button' needs a path it can read.
+            # 'drive_dir' is 'downloads', which is symlinked to user drive.
+            # So yielding 'downloads/file.mp4' works great.
+            yield final_out_drive
+        else:
+            yield f"⚠️ Erro ao gerar corte {seg_num} (Arquivo Vazio/Falha FFmpeg).", 0
 
     yield "✅ Processamento de Lote Completado!", 100
