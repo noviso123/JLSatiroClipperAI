@@ -100,9 +100,10 @@ with gr.Blocks(title="JLSatiro AI Studio V7.2", theme=gr.themes.Soft()) as demo:
                 btn_run = gr.Button("🚀 INICIAR PROCESSAMENTO (Processar Fila)", variant="primary", scale=2)
                 btn_reset = gr.Button("🗑️ LIMPAR TUDO", variant="stop", scale=1)
 
-            with gr.Accordion("🔓 Desbloqueio (Anti-Bot)", open=False):
-                gr.Markdown("Se der erro de 'Sign in', faça upload do `cookies.txt` (Use a extensão 'Get cookies.txt LOCALLY')")
-                cookies_input = gr.File(label="Arquivo de Cookies (cookies.txt)", file_types=[".txt"])
+            with gr.Accordion("🔑 AUTENTICAÇÃO YOUTUBE (Anti-Bloqueio)", open=True):
+                gr.Markdown("⚠️ **Obrigatório se aparecer erro de 'Sign in'**.")
+                gr.Markdown("Use a extensão **'Get cookies.txt LOCALLY'** para baixar o arquivo.")
+                cookies_input = gr.File(label="ARRASTE O ARQUIVO 'cookies.txt' AQUI 👇", file_types=[".txt"])
 
             reset_msg = gr.Textbox(label="Status do Sistema", interactive=False, placeholder="O sistema está pronto.")
 
