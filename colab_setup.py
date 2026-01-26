@@ -13,7 +13,7 @@ def run_command(command):
         pass
 
 def main():
-    print("💎 [Auto-Update] JLSatiro Setup V15.4 (GRADIO FIX)...")
+    print("💎 [Auto-Update] JLSatiro Setup V15.5 (FINAL POLISH)...")
 
     # 0. DRIVE DEEP INTEGRATION
     print("☁️ [0/4] Conectando Google Drive (Modo Produção)...")
@@ -56,37 +56,10 @@ def main():
     print("🔄 [2.5/4] Atualizando yt-dlp e Pytubefix (Crítico)...")
     run_command("pip install -U yt-dlp pytubefix -q")
 
-    # 3. AI Model (Vosk Smart Download)
-    model_dir = "model"
-    if not os.path.exists(model_dir):
-        print("🧠 [3/4] Baixando Cérebro da IA...")
-
-        # TENTATIVA 1: LARGE MODEL (1.5GB)
-        print("    ↳ Tentando Modelo LARGE (1.5GB) para máxima qualidade...")
-        try:
-            # Remove -q to let user see progress
-            run_command("wget https://alphacephei.com/vosk/models/vosk-model-pt-0.3.zip")
-            run_command("unzip -q vosk-model-pt-0.3.zip")
-            run_command("mv vosk-model-pt-0.3 model")
-            run_command("rm vosk-model-pt-0.3.zip")
-            print("    ✅ Modelo LARGE Instalado com Sucesso!")
-        except:
-            print("    ❌ Falha no download do Modelo Large. (Server pode estar lento)")
-            print("    ⚠️ Ativando FALLBACK para Modelo Small (50MB)...")
-
-            # TENTATIVA 2: SMALL MODEL (Fallback)
-            if os.path.exists("vosk-model-pt-0.3.zip"): os.remove("vosk-model-pt-0.3.zip") # Cleanup partial
-
-            try:
-                run_command("wget https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip")
-                run_command("unzip -q vosk-model-small-pt-0.3.zip")
-                run_command("mv vosk-model-small-pt-0.3 model")
-                run_command("rm vosk-model-small-pt-0.3.zip")
-                print("    ✅ Modelo SMALL Instalado com Sucesso! (Sistema Operacional)")
-            except Exception as e:
-                print(f"    ❌ ERRO CRÍTICO: Nenhum modelo pôde ser baixado. {e}")
-    else:
-        print("🧠 [3/4] Modelo IA já instalado.")
+    # 3. AI Model (Whisper CPU)
+    print("🧠 [3/4] Verificando Motor Whisper (CPU Mode)...")
+    # No manual download needed. Whisper auto-downloads on first run to ~/.cache
+    print("    ✅ Whisper configurado (Download automático via Cache).")
 
     print("✅ [4/4] Setup Completo! Sistema Pronto.")
 

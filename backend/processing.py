@@ -16,9 +16,11 @@ _CACHED_MODEL = None
 def get_cached_model():
     global _CACHED_MODEL
     if _CACHED_MODEL is None:
-        print(f"🔄 Carregando Modelo WHISPER (Medium) na GPU...")
-        # Use 'medium' for great balance, or 'large-v3' if explicitly requested
-        _CACHED_MODEL = whisper.load_model("medium")
+        print(f"🔄 Carregando Modelo WHISPER (Small - CPU Optimized)...")
+        # V15.5: CPU Optimization Enforced
+        # 'small' is lightweight (ideal for Colab Free).
+        # device='cpu' and fp16=False prevents crashes.
+        _CACHED_MODEL = whisper.load_model("small", device="cpu")
     return _CACHED_MODEL
 
 def get_transcription(audio_path, dummy_path=None):
@@ -29,8 +31,8 @@ def get_transcription(audio_path, dummy_path=None):
     model = get_cached_model()
 
     # Transcribe with word timestamps (Crucial for karaoke)
-    print(f"🎤 Ouvindo áudio... {os.path.basename(audio_path)}")
-    result = model.transcribe(audio_path, language="pt", word_timestamps=True)
+    print(f"🎤 Ouvindo áudio (CPU Mode)... {os.path.basename(audio_path)}")
+    result = model.transcribe(audio_path, language="pt", word_timestamps=True, fp16=False)
 
     all_words = []
     for segment in result["segments"]:
