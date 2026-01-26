@@ -128,8 +128,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         line_text = ""
         for w in chunk:
             # Karaoke effect: {\kX} where X is duration in centiseconds
+            # Karaoke effect: {\kX} where X is duration in centiseconds
             dur_cs = int((w['end'] - w['start']) * 100)
-            line_text += f"{{\k{dur_cs}}}{w['word']} "
+            line_text += f"{{\\k{dur_cs}}}{w['word']} "
 
         events += f"Dialogue: 0,{start_t},{end_t},Default,,0,0,0,,{line_text.strip()}\n"
 

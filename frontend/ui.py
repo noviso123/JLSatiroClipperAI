@@ -158,7 +158,13 @@ with gr.Blocks(title="JLSatiro Cobalt V16.5 (HYPER)", theme=cobalt_theme) as dem
     gallery = gr.Gallery(label="", columns=[4], rows=[2], object_fit="cover", height="auto", show_share_button=True)
 
     # Poll system state every 1 second - This enables PERSISTENCE on reload
-    demo.load(poll_system, inputs=None, outputs=[logs, gallery, status_info], every=1)
+
+    # Initial Load
+    demo.load(poll_system, inputs=None, outputs=[logs, gallery, status_info])
+
+    # Polling with Timer (Modern Gradio approach)
+    timer = gr.Timer(1)
+    timer.tick(poll_system, inputs=None, outputs=[logs, gallery, status_info])
 
     # Actions
     btn_run.click(
