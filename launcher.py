@@ -15,6 +15,14 @@ def main():
 
     # 0. Auth Ngrok
     NGROK_TOKEN = "2tvNFAWzP9KMYZGpfCqx1EQmmwN_NPCQKjeqHD7pomCtJFVA"
+
+    # -1. FORCE UPDATE (Redundancy)
+    print("🔄 [Launcher] Verificando Atualizações...")
+    try:
+        run_command("git pull origin main")
+    except Exception as e:
+        print(f"⚠️ Aviso: Falha ao atualizar git ({e}). Seguindo com versão atual.")
+
     print("🔑 Autenticando Ngrok...")
     ngrok.set_auth_token(NGROK_TOKEN)
 
