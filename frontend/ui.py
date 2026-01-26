@@ -101,8 +101,13 @@ with gr.Blocks(title="JLSatiro AI Studio V12.0", theme=gr.themes.Soft()) as demo
                 btn_run = gr.Button("🚀 INICIAR PROCESSAMENTO (Processar Fila)", variant="primary", scale=2)
                 btn_reset = gr.Button("🗑️ LIMPAR TUDO", variant="stop", scale=1)
 
-            # Stealth Mode Active: No manual auth needed
-            gr.Markdown("🔒 **Modo Stealth Ativado**: O sistema tentará burlar bloqueios automaticamente.")
+            # Stealth Mode Active (Default) -> Advanced Options below
+            with gr.Accordion("🛡️ Acesso Avançado / Anti-Bot (Cookies & API)", open=False):
+                gr.Markdown("### 🔐 Área de Credenciais (Opcional)")
+                gr.Markdown("Se tiver problemas, suba seus arquivos aqui. O sistema salva automaticamente.")
+                with gr.Row():
+                    cookies_input = gr.File(label="1. Cookies (cookies.txt)", file_types=[".txt"])
+                    oauth_input = gr.File(label="2. Client Secret (client_secret.json)", file_types=[".json"])
 
             reset_msg = gr.Textbox(label="Status do Sistema", interactive=False, placeholder="O sistema está pronto.")
 
