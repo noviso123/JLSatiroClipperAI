@@ -45,7 +45,10 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
     # Clean Start
     progress(0, desc="Iniciando...")
     log_history = "🚀 Iniciando Fábrica...\n"
-    yield log_history, None # Don't scan gallery yet, just show logs
+
+    # Cache gallery once to avoid looking at Drive every loop (V12.3 Fix)
+    cached_gallery = scan_gallery()
+    yield log_history, cached_gallery
 
     try:
         for result in processing.process_video(url, settings):
@@ -54,14 +57,15 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
                 # Update Visual Bar
                 progress(pct / 100, desc=status)
 
-                # Update Text Log - EFFICIENT UPDATE
+                # Update Text Log
                 log_history = f"[{pct}%] {status}\n" + log_history
-                yield log_history, None # DO NOT SCAN GALLERY HERE (Too Slow on Drive)
+                yield log_history, cached_gallery # Yield cached (fast)
 
             elif isinstance(result, str):
-                # Finished Clip Path - NOW we update gallery
+                # Finished Clip Path - NOW we refresh gallery
                 log_history = f"✅ CORTE PRONTO: {os.path.basename(result)}\n" + log_history
-                yield log_history, scan_gallery()
+                cached_gallery = scan_gallery() # Update cache
+                yield log_history, cached_gallery
 
         log_history = "✨ PROCESSAMENTO FINALIZADO COM SUCESSO!\n" + log_history
         progress(1, desc="Concluído!")
@@ -69,7 +73,7 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
 
     except Exception as e:
         log_history = f"❌ Erro Crítico: {str(e)}\n" + log_history
-        yield log_history, None
+        yield log_history, cached_gallery
 
 def delete_all():
     """Factory Reset"""
@@ -87,8 +91,8 @@ def delete_all():
         return f"Erro ao limpar: {e}", scan_gallery()
 
 # --- INTERFACE ---
-with gr.Blocks(title="JLSatiro AI Studio V12.2", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🎬 JLSatiro Clipper AI - V12.2 (FAST UI EDITION)")
+with gr.Blocks(title="JLSatiro AI Studio V12.3", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🎬 JLSatiro Clipper AI - V12.3 (STABLE LOGS)")
     gr.Markdown("### ⚡ Sistema de Cortes Virais Automáticos (Google API + Cookies)")
 
     with gr.Row():
