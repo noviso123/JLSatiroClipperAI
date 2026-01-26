@@ -1,7 +1,4 @@
 import os
-import torch # Optimized import
-torch.backends.cuda.matmul.allow_tf32 = True # Allow TF32 on Ampere+
-torch.backends.cudnn.allow_tf32 = True
 import wave
 import subprocess
 import datetime

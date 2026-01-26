@@ -1,7 +1,7 @@
 pytubefix
 yt-dlp>=2023.11.16
 ffmpeg-python
-openai-whisper
+faster-whisper
 torch
 cuda-python
 moviepy

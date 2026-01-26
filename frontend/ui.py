@@ -97,12 +97,12 @@ cobalt_theme = gr.themes.Ocean(
     font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui"]
 )
 
-with gr.Blocks(title="JLSatiro Cobalt V16.3 (SMART AUTH)", theme=cobalt_theme) as demo:
+with gr.Blocks(title="JLSatiro Cobalt V16.5 (HYPER)", theme=cobalt_theme) as demo:
     with gr.Column(elem_id="main_container", variant="panel"):
         gr.Markdown(
             """
-            # 💎 JLSatiro Cobalt V16.3
-            ### *Clean. Fast. Private. T4 GPU Ultimate.*
+            # 💎 JLSatiro Cobalt V16.5
+            ### *Clean. Fast. Private. CTranslate2 Hyper Speed.*
             """
         )
 
@@ -117,8 +117,8 @@ with gr.Blocks(title="JLSatiro Cobalt V16.3 (SMART AUTH)", theme=cobalt_theme) a
                 lines=1
             )
             with gr.Row():
-                # V16.0: GPU Power
-                model_drop = gr.Dropdown(["Whisper Large V3 (GPU)"], value="Whisper Large V3 (GPU)", interactive=False, show_label=False, container=False, scale=1)
+                # V16.5: Hyper Speed
+                model_drop = gr.Dropdown(["Hyper-Whisper V3 (GPU)"], value="Hyper-Whisper V3 (GPU)", interactive=False, show_label=False, container=False, scale=1)
                 subs_check = gr.Checkbox(label="Legendas", value=True, container=False, scale=0)
                 btn_run = gr.Button("BAIXAR & CORTAR", variant="primary", scale=1)
 
