@@ -13,7 +13,7 @@ def run_command(command):
         pass
 
 def main():
-    print("💎 [Auto-Update] JLSatiro Setup V15.6 (UI CLEANUP)...")
+    print("💎 [Auto-Update] JLSatiro Setup V15.7 (YTDLP FIX)...")
 
     # 0. DRIVE DEEP INTEGRATION
     print("☁️ [0/4] Conectando Google Drive (Modo Produção)...")
