@@ -27,7 +27,7 @@ def scan_gallery():
     # Gradio Gallery expects a list of (path, label) tuples or just paths
     return clips
 
-def start_processing(url, model_type, burn_subs, progress=gr.Progress()):
+def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progress=gr.Progress()):
     """Generator function for Gradio Output"""
     if not url:
         yield "⚠️ Erro: URL Vazia", []
@@ -37,7 +37,9 @@ def start_processing(url, model_type, burn_subs, progress=gr.Progress()):
     settings = {
         "model": model_type,
         "lang": "Português (BR)",
-        "burn_subtitles": burn_subs
+        "burn_subtitles": burn_subs,
+        "cookies_path": cookies_file.name if cookies_file else None,
+        "oauth_path": oauth_file.name if oauth_file else None
     }
 
     log_history = ""
@@ -85,9 +87,9 @@ def delete_all():
         return f"Erro ao limpar: {e}", scan_gallery()
 
 # --- INTERFACE ---
-with gr.Blocks(title="JLSatiro AI Studio V10.0", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🎬 JLSatiro Clipper AI - V10.0 (HYBRID ENGINE)")
-    gr.Markdown("### ⚡ Sistema de Cortes Virais Automáticos (Download Redundante)")
+with gr.Blocks(title="JLSatiro AI Studio V12.0", theme=gr.themes.Soft()) as demo:
+    gr.Markdown("# 🎬 JLSatiro Clipper AI - V12.0 (ULTIMATE EDITION)")
+    gr.Markdown("### ⚡ Sistema de Cortes Virais Automáticos (Google API + Cookies)")
 
     with gr.Row():
         with gr.Column(scale=1):
@@ -116,7 +118,7 @@ with gr.Blocks(title="JLSatiro AI Studio V10.0", theme=gr.themes.Soft()) as demo
     demo.load(scan_gallery, outputs=gallery)
 
     # Actions
-    btn_run.click(start_processing, inputs=[url_input, model_drop, subs_check], outputs=[logs, gallery])
+    btn_run.click(start_processing, inputs=[url_input, model_drop, subs_check, cookies_input, oauth_input], outputs=[logs, gallery])
     btn_reset.click(delete_all, outputs=[reset_msg, gallery])
 
 if __name__ == "__main__":

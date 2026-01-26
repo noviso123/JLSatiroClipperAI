@@ -132,11 +132,29 @@ def cleanup_temps(folder, job_id):
         p = os.path.join(folder, f)
         if os.path.exists(p): os.remove(p)
 
-# --- HYBRID DOWNLOAD START ---
+# --- HYBRID DOWNLOAD ENGINE V12.0 (OAUTH + COOKIES) ---
+def download_authenticated_ytdlp(url, output_path, cookies_path):
+    import yt_dlp
+    print("Trying Authenticated Yt-Dlp (Gold Standard)...")
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': output_path,
+        'quiet': True,
+        'no_warnings': True,
+        'overwrites': True,
+        'nocheckcertificate': True,
+        'cookiefile': cookies_path, # THE GOLD KEY
+        'source_address': '0.0.0.0'
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    return True
+
 def download_strategy_pytubefix(url, output_path):
     from pytubefix import YouTube
     print("Trying Pytubefix...")
-    yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
+    # V12 Update: Try to use client_secret if available implies oauth, but effectively we use 'client=ANDROID' for best headless result
+    yt = YouTube(url, client='ANDROID', use_oauth=False, allow_oauth_cache=False)
     stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
     if not stream:
         stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
@@ -179,23 +197,58 @@ def process_video(url, settings):
     video_path = f"{work_dir}/input_video.mp4"
     audio_path = f"{work_dir}/input_audio.wav"
 
-    # 1. Download (HYBRID ENGINE V10.0)
-    yield "⬇️ Tentando Download (Motor A: Pytubefix)...", 5
+    # --- V12.0: CLIENT SECRET CHECK ---
+    if os.path.exists("client_secret.json"):
+        yield "🔑  Client Secret (OAuth) Detectado! Sistema validado.", 2
+
+    # --- COOKIE PERSISTENCE LOGIC (V12.0) ---
+    persistent_cookie_path = f"{drive_dir}/auth_cookies.txt"
+    active_cookie_path = None
+
+    # Case A: User uploaded a new file
+    if 'cookies_path' in settings and settings['cookies_path']:
+        try:
+            shutil.copy(settings['cookies_path'], persistent_cookie_path)
+            active_cookie_path = persistent_cookie_path
+            yield "💾 Cookies Novos Salvos no Drive (Para sempre)!", 3
+        except:
+            active_cookie_path = settings['cookies_path']
+
+    # Case B: No upload, check for saved file
+    elif os.path.exists(persistent_cookie_path):
+        active_cookie_path = persistent_cookie_path
+        yield "♻️ Usando Cookies Salvos no Drive (Auto-Login)...", 3
+
+    # 1. Download (HYBRID ENGINE V12.0)
+    yield "⬇️ Iniciando Download (Motor V12.0)...", 5
 
     success_dl = False
     error_log = ""
 
-    # Try A: Pytubefix
-    try:
-        download_strategy_pytubefix(url, video_path)
-        success_dl = True
-    except Exception as e:
-        error_log += f"Pytubefix Falhou: {e}\n"
-        pass
+    # STRATEGY 1: COOKIES (GOLD STANDARD)
+    if active_cookie_path:
+        yield "🍪 Modo Gold (Autenticado) Ativado...", 10
+        try:
+            download_authenticated_ytdlp(url, video_path, active_cookie_path)
+            success_dl = True
+        except Exception as e:
+            error_log += f"Authenticated DL Falhou: {e}\n"
+            yield f"⚠️ Autenticação falhou ({e}). Tentando fallback...", 10
+            pass
 
-    # Try B: Yt-Dlp Stealth (Fallback)
+    # STRATEGY 2: PYTUBEFIX
     if not success_dl:
-        yield "⚠️ Pytubefix falhou. Tentando Motor B (Yt-Dlp Stealth)...", 5
+        yield "⬇️ Tentando Pytubefix (Sem Cookies)...", 15
+        try:
+            download_strategy_pytubefix(url, video_path)
+            success_dl = True
+        except Exception as e:
+            error_log += f"Pytubefix Falhou: {e}\n"
+            pass
+
+    # STRATEGY 3: YT-DLP STEALTH
+    if not success_dl:
+        yield "⚠️ Pytubefix falhou. Tentando Motor C (Yt-Dlp Stealth)...", 20
         try:
              download_strategy_ytdlp_stealth(url, video_path)
              success_dl = True
@@ -204,7 +257,7 @@ def process_video(url, settings):
             pass
 
     if not success_dl:
-         yield f"❌ TODOS OS MOTORES FALHARAM:\n{error_log}", 0
+         yield f"❌ TODOS OS MOTORES FALHARAM. \nSOLUÇÃO: Use a aba 'Acesso Avançado' e suba o cookies.txt.\n{error_log}", 0
          return
 
     # Sync Input to Drive
@@ -212,11 +265,11 @@ def process_video(url, settings):
     except: pass
 
     # 2. Extract Full Audio (for Discovery)
-    yield "🔊 Lendo Áudio Original...", 10
+    yield "🔊 Lendo Áudio Original...", 25
     subprocess.run(['ffmpeg', '-threads', '4', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # 3. Discovery Transcription
-    yield "🧠 Mapeando Conteúdo...", 20
+    yield "🧠 Mapeando Conteúdo...", 30
     model_path = "model"
     if not os.path.exists(model_path): yield "❌ Modelo não encontrado!", 0; return
 
@@ -256,7 +309,7 @@ def process_video(url, settings):
         if current_start_word >= len(full_words): break
 
     total_segs = len(segments)
-    yield f"📐 Estratégia Definida: {total_segs} Cortes Identificados.", 30
+    yield f"📐 Estratégia Definida: {total_segs} Cortes Identificados.", 35
 
     # --- PROCESSING LOOP ---
     for idx, seg in enumerate(segments):

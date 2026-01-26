@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints
+downloads/
+model/
+cookies.txt
+auth_cookies.txt
+client_secret.json
+client_secret*.json
+*.json
