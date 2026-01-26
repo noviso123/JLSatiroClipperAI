@@ -236,21 +236,30 @@ def process_video(url, settings):
         start_t = seg['start']
         dur = seg['end'] - start_t
 
-        # 4. Render Raw Cut
+        # 4. Render Raw Cut (VERTICAL 9:16 CONVERSION)
         raw_cut_path = f"{work_dir}/raw_cut_{job_id}.mp4"
         raw_cut_audio = f"{work_dir}/raw_cut_{job_id}.wav"
 
-        # FIX SYNC/SLOWMO: Force 30fps (CFR) and use 'veryfast' instead of 'ultrafast'
-        # -r 30: Forces standardized framerate
-        # -vsync cfr: Enforces constant frame rate (prevents drift)
-        # -max_muxing_queue_size 1024: Prevents buffer underflows
+        # FILTER: Vertical Blur-Fill (Standard Viral Style)
+        # 1. Background: Original -> Scale to Cover 1080x1920 -> Crop Center -> Heavy Blur
+        # 2. Foreground: Original -> Scale to 1080 width -> Overlay in Center
+        # 3. Force 30fps
+
+        filter_complex = (
+            "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg];"
+            "[0:v]scale=1080:-1[fg];"
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
+        )
+
+        # TIMEOUT PROTECTION: 300s (5min) per cut max
         try:
             subprocess.run([
-                'ffmpeg', '-threads', '4',
+                'ffmpeg', '-threads', '8',
                 '-ss', str(start_t), '-t', str(dur),
                 '-i', video_path,
+                '-filter_complex', filter_complex,
                 '-r', '30', '-vsync', 'cfr',
-                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                '-c:v', 'libx264', '-preset', 'superfast', '-crf', '25',
                 '-c:a', 'aac', '-ar', '44100',
                 '-max_muxing_queue_size', '4096',
                 raw_cut_path, '-y'
@@ -281,11 +290,11 @@ def process_video(url, settings):
         vf = f"ass={ass_path}"
         try:
             # Re-enforce r 30 here to be safe during burn
-            subprocess.run(['ffmpeg', '-threads', '4',
+            subprocess.run(['ffmpeg', '-threads', '8',
                            '-i', raw_cut_path,
                            '-vf', vf,
                            '-r', '30', '-vsync', 'cfr',
-                           '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+                           '-c:v', 'libx264', '-preset', 'superfast', '-crf', '25',
                            '-c:a', 'copy',
                            subtitled_cut, '-y'],
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
