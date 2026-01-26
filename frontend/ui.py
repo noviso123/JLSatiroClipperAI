@@ -27,7 +27,7 @@ def scan_gallery():
     # Gradio Gallery expects a list of (path, label) tuples or just paths
     return clips
 
-def start_processing(url, model_type, burn_subs, cookies_file, progress=gr.Progress()):
+def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progress=gr.Progress()):
     """Generator function for Gradio Output"""
     if not url:
         yield "⚠️ Erro: URL Vazia", []
@@ -38,7 +38,8 @@ def start_processing(url, model_type, burn_subs, cookies_file, progress=gr.Progr
         "model": model_type,
         "lang": "Português (BR)",
         "burn_subtitles": burn_subs,
-        "cookies_path": cookies_file.name if cookies_file else None
+        "cookies_path": cookies_file.name if cookies_file else None,
+        "oauth_path": oauth_file.name if oauth_file else None
     }
 
     log_history = ""
@@ -102,8 +103,10 @@ with gr.Blocks(title="JLSatiro AI Studio V7.2", theme=gr.themes.Soft()) as demo:
 
             with gr.Accordion("🔑 AUTENTICAÇÃO YOUTUBE (Anti-Bloqueio)", open=True):
                 gr.Markdown("⚠️ **Obrigatório se aparecer erro de 'Sign in'**.")
-                gr.Markdown("Use a extensão **'Get cookies.txt LOCALLY'** para baixar o arquivo.")
-                cookies_input = gr.File(label="ARRASTE O ARQUIVO 'cookies.txt' AQUI 👇", file_types=[".txt"])
+                gr.Markdown("Use a extensão **'Get cookies.txt LOCALLY'** para baixar os cookies.")
+                with gr.Row():
+                    cookies_input = gr.File(label="1. Cookies (cookies.txt) - PRINCIPAL", file_types=[".txt"])
+                    oauth_input = gr.File(label="2. Client Secret/OAuth (Opcional)", file_types=[".json"])
 
             reset_msg = gr.Textbox(label="Status do Sistema", interactive=False, placeholder="O sistema está pronto.")
 
@@ -119,7 +122,7 @@ with gr.Blocks(title="JLSatiro AI Studio V7.2", theme=gr.themes.Soft()) as demo:
     demo.load(scan_gallery, outputs=gallery)
 
     # Actions
-    btn_run.click(start_processing, inputs=[url_input, model_drop, subs_check, cookies_input], outputs=[logs, gallery])
+    btn_run.click(start_processing, inputs=[url_input, model_drop, subs_check, cookies_input, oauth_input], outputs=[logs, gallery])
     btn_reset.click(delete_all, outputs=[reset_msg, gallery])
 
 if __name__ == "__main__":
