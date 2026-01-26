@@ -45,94 +45,115 @@ with st.sidebar:
 
     drive_path = "/content/drive/MyDrive"
     save_to_drive = False
+
+    # Check symlink or drive mount
     if os.path.exists(drive_path):
         st.success("✅ Google Drive Detectado")
-        save_to_drive = st.checkbox("Salvar Cópia no Drive", value=True)
+        save_to_drive = True # Force True as we are symlinked now
     else:
         st.warning("⚠️ Drive Não Conectado")
 
     st.markdown("---")
-    st.caption("v3.6.0 - Factory Mode")
-    st.caption("🔄 Para atualizar: Reinicie Célula 1 do Notebook.")
+    st.caption("v4.2.0 - Cloud Gallery")
+    if st.button("🔄 Checar Atualizações do Sistema"):
+        try:
+            os.system("git pull origin main")
+            st.success("Sistema Atualizado! Recarregue a página.")
+            time.sleep(2)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Erro: {e}")
+
+# --- Helper: Gallery ---
+def load_gallery():
+    """Scans the output folder for existing clips"""
+    gallery_path = "downloads"
+    clips = []
+    if os.path.exists(gallery_path):
+        # Look for 'viral_clip_' files which are the final outputs
+        for f in os.listdir(gallery_path):
+            if f.startswith("viral_clip_") and f.endswith(".mp4"):
+                clips.append(os.path.join(gallery_path, f))
+
+    # Sort by modification time (newest first)
+    clips.sort(key=os.path.getmtime, reverse=True)
+    return clips
 
 # --- Main Interface ---
 col_logo, col_title = st.columns([1, 5])
 with col_logo: st.markdown("# 🏭")
 with col_title:
     st.title("Fábrica de Cortes Virais IA")
-    st.caption("Gera 10+ Cortes Automáticos por vídeo • 100% Autônomo")
+    st.caption("Gera 10+ Cortes Automáticos por vídeo • 100% Autônomo • Salvo no Drive")
 
-st.markdown("---")
-
+# 1. New Processing Section
+st.markdown("### 🆕 Novo Processamento")
 video_url = st.text_input("🔗 URL do Vídeo (YouTube):", placeholder="https://www.youtube.com/watch?v=...")
 
 if st.button("🚀 Iniciar Fábrica de Cortes"):
     if not video_url:
         st.warning("⚠️ Insira uma URL válida.")
     else:
-        status_container = st.container()
-        progress_bar = st.progress(0)
-        results_area = st.container()
+        st.error("⚠️ **NÃO RECARREGUE A PÁGINA** enquanto o processamento estiver rodando! (Você perderá o progresso visual)")
+
+        status_container = st.status("🏗️ Iniciando Processos...", expanded=True)
+        progress_bar = status_container.progress(0)
+
+        clip_count = 0
 
         try:
-            with status_container:
-                st.markdown('<div class="status-box">', unsafe_allow_html=True)
-                settings = {"model": model_choice, "lang": language, "burn_subtitles": burn_subtitles}
+            settings = {"model": model_choice, "lang": language, "burn_subtitles": burn_subtitles}
 
-                # Logic for Multi-Clip Handling
-                clip_count = 0
+            for result in processing.process_video(video_url, settings):
+                if isinstance(result, tuple):
+                    status_text, progress_val = result
+                    status_container.write(f"⚙️ {status_text}")
+                    progress_bar.progress(progress_val)
 
-                for result in processing.process_video(video_url, settings):
-                    if isinstance(result, tuple):
-                        status_text, progress_val = result
-                        st.write(f"🔄 {status_text}")
-                        progress_bar.progress(progress_val)
-
-                    elif isinstance(result, str): # Found a FILE PATH (Finished Clip)
-                        file_path = result
-                        clip_count += 1
-
-                        # --- Drive Logic ---
-                        drive_msg = ""
-                        if save_to_drive:
-                            try:
-                                folder_name = "Cortes_IA_Studio"
-                                dest_folder = os.path.join(drive_path, folder_name)
-                                os.makedirs(dest_folder, exist_ok=True)
-                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                filename = os.path.basename(file_path).replace(".mp4", f"_{timestamp}.mp4")
-                                dest_path = os.path.join(dest_folder, filename)
-                                shutil.copy2(file_path, dest_path)
-                                drive_msg = f"☁️ Salvo no Drive: {filename}"
-                            except Exception as e:
-                                drive_msg = f"⚠️ Erro Drive: {e}"
-
-                        # --- Display Result (Streamed) ---
-                        with results_area:
-                            st.markdown(f'<div class="clip-box">', unsafe_allow_html=True)
-                            st.subheader(f"🎬 Corte #{clip_count}")
-                            if drive_msg: st.caption(drive_msg)
-
-                            c1, c2 = st.columns([2, 1])
-                            with c1: st.video(file_path)
-                            with c2:
-                                with open(file_path, "rb") as f:
-                                    st.download_button(
-                                        f"📥 Baixar Corte #{clip_count}",
-                                        f,
-                                        os.path.basename(file_path),
-                                        "video/mp4",
-                                        key=f"dl_{clip_count}_{file_path}"
-                                    )
-                            st.markdown('</div>', unsafe_allow_html=True)
-
-                st.markdown('</div>', unsafe_allow_html=True)
+                elif isinstance(result, str): # Found a FILE PATH (Finished Clip)
+                    file_path = result
+                    clip_count += 1
+                    status_container.write(f"✅ **Corte #{clip_count} Finalizado!**")
+                    # It's already in Drive/Downloads thanks to symlink logic
+                    st.toast(f"Corte #{clip_count} Salvo no Drive!", icon="💾")
 
             if clip_count > 0:
+                status_container.update(label="✅ Processamento Concluído!", state="complete", expanded=False)
                 st.balloons()
-                st.success(f"✅ **Fábrica Finalizada! {clip_count} Cortes Gerados.**")
+                st.success(f"**Sucesso! {clip_count} Cortes Gerados.** Veja abaixo na Galeria.")
+                time.sleep(2)
+                st.rerun() # Refresh to show in gallery
             else:
-                st.error("❌ Nenhum corte foi gerado. Verifique o vídeo.")
+                status_container.update(label="❌ Falha", state="error")
+                st.error("Nenhum corte foi gerado.")
 
         except Exception as e:
-            st.error(f"❌ Erro Crítico: {str(e)}")
+            status_container.update(label="❌ Erro Crítico", state="error")
+            st.error(f"Erro: {str(e)}")
+
+st.markdown("---")
+
+# 2. Persistent Gallery Section
+st.markdown("### 📂 Galeria (Seu Drive)")
+st.caption("Arquivos salvos em: 'Meu Drive > JLSatiro_AI_Studio'")
+
+existing_clips = load_gallery()
+
+if not existing_clips:
+    st.info("Nenhum corte encontrado na pasta. Gere o primeiro acima! 👆")
+else:
+    for f_path in existing_clips:
+        with st.expander(f"🎬 {os.path.basename(f_path)}", expanded=False):
+            c1, c2 = st.columns([3, 1])
+            with c1: st.video(f_path)
+            with c2:
+                try:
+                    with open(f_path, "rb") as f:
+                        st.download_button(
+                            "📥 Baixar Arquivo",
+                            f,
+                            os.path.basename(f_path),
+                            "video/mp4",
+                            key=f_path
+                        )
+                except: st.error("Arquivo indisponível")
