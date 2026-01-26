@@ -7,6 +7,7 @@ import time
 import shutil
 import asyncio
 import edge_tts
+from faster_whisper import WhisperModel
 
 # --- Global Cache ---
 _CACHED_MODEL = None
@@ -14,38 +15,38 @@ _CACHED_MODEL = None
 def get_cached_model():
     global _CACHED_MODEL
     if _CACHED_MODEL is None:
-        print(f"🔄 Carregando Modelo WHISPER (Large V3 - GPU T4 Optimized)...")
-        # V16.0: UNLEASH THE BEAST
-        # 'large-v3' is the best model. 'cuda' uses the T4 GPU.
+        print(f"⚡ Carregando Modelo HYPER-SPEED (Faster-Whisper Large-V3)...")
+        # V16.5/16.8: CTranslate2 Engine (4x Faster than standard Whisper)
         try:
-            _CACHED_MODEL = whisper.load_model("large-v3", device="cuda")
+            # float16 is native for T4. device='cuda' is mandatory.
+            _CACHED_MODEL = WhisperModel("large-v3", device="cuda", compute_type="float16")
         except Exception as e:
-            print(f"⚠️ GPU não detectada. Fallback para CPU (Small)... Erro: {e}")
-            _CACHED_MODEL = whisper.load_model("small", device="cpu")
+            print(f"⚠️ GPU Falhou. Usando CPU (int8)... Erro: {e}")
+            # Use small/int8 for CPU fallback in faster-whisper
+            _CACHED_MODEL = WhisperModel("small", device="cpu", compute_type="int8")
     return _CACHED_MODEL
 
 def get_transcription(audio_path, dummy_path=None):
     """
-    Transcribes audio using OpenAI Whisper (GPU Accelerated).
+    Transcribes audio using Faster-Whisper (CTranslate2).
     Returns list of dicts: {'word': str, 'start': float, 'end': float, 'conf': float}
     """
     model = get_cached_model()
 
-    # Check if we are really on GPU
-    is_cpu = model.device.type == "cpu"
+    print(f"⚡ Transcrevendo (Hyper-Speed C++ Engine)... {os.path.basename(audio_path)}")
 
-    print(f"🎤 Ouvindo áudio ({'CPU' if is_cpu else 'GPU'} Mode)... {os.path.basename(audio_path)}")
-
-    # fp16=True is safe on T4/Tesla GPUs
-    result = model.transcribe(audio_path, language="pt", word_timestamps=True, fp16=not is_cpu)
+    # Transcribe
+    # beam_size=5 is standard for accuracy. word_timestamps=True is mandatory.
+    segments, info = model.transcribe(audio_path, beam_size=5, language="pt", word_timestamps=True)
 
     all_words = []
-    for segment in result["segments"]:
-        for word in segment["words"]:
+    # faster-whisper returns a generator, so we iterate
+    for segment in segments:
+        for word in segment.words:
             all_words.append({
-                "word": word["word"],
-                "start": word["start"],
-                "end": word["end"]
+                "word": word.word,
+                "start": word.start,
+                "end": word.end
             })
 
     return all_words
@@ -97,6 +98,63 @@ def download_strategy_pytubefix(url, output_path):
     stream.download(output_path=os.path.dirname(output_path), filename=os.path.basename(output_path))
     return True
 # --- HYBRID DOWNLOAD END ---
+
+# --- ASS LEGENDAS (V11.0) ---
+def generate_karaoke_ass(words):
+    header = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Montserrat ExtraBold,75,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,250,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    events = ""
+    # Group words into small execution blocks (3-4 words)
+    chunk_size = 4
+    for i in range(0, len(words), chunk_size):
+        chunk = words[i:i+chunk_size]
+        start_t = format_time(chunk[0]['start'])
+        end_t = format_time(chunk[-1]['end'])
+
+        line_text = ""
+        for w in chunk:
+            # Karaoke effect: {\kX} where X is duration in centiseconds
+            dur_cs = int((w['end'] - w['start']) * 100)
+            line_text += f"{{\k{dur_cs}}}{w['word']} "
+
+        events += f"Dialogue: 0,{start_t},{end_t},Default,,0,0,0,,{line_text.strip()}\n"
+
+    return header + events
+
+def format_time(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    cs = int((seconds * 100) % 100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
+
+# --- POST PROD (V12.0) ---
+def generate_thumbnail(video_path, output_path, job_id, text="VIRAL"):
+    # Simple thumb extraction
+    try:
+        subprocess.run(['ffmpeg', '-i', video_path, '-ss', '00:00:01.000', '-vframes', '1', output_path.replace('.mp4', '.jpg'), '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Convert back to mp4 loop/static for concat (Hack)
+        # Actually easier to just take first 1 sec of video
+        pass
+    except: pass
+
+def create_narrator_hook(video_path, output_path, text, job_id):
+    # Just a placeholder for now, passing video through
+    try:
+        shutil.copy(video_path, output_path)
+    except: pass
 
 def process_video(url, settings):
     settings['lang'] = 'Português (BR)'
@@ -187,8 +245,7 @@ def process_video(url, settings):
     subprocess.run(['ffmpeg', '-threads', '16', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # 3. Discovery Transcription
-    yield "🧠 Mapeando Conteúdo (Whisper AI Medium)...", 30
-    # Whisper loads from cache, no path needed
+    yield "🧠 Mapeando Conteúdo (Faster-Whisper)...", 30
 
     try:
         full_words = get_transcription(audio_path)
@@ -253,8 +310,7 @@ def process_video(url, settings):
             "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
         )
 
-        # V16.4: NVENC HARDWARE ENCODING CHECK
-        # Colab T4 has NVENC. We should use it.
+        # V16.4/16.8: NVENC HARDWARE ENCODING CHECK
         use_nvenc = False
         try:
              # Check if we have an NVIDIA GPU available for FFmpeg
@@ -310,7 +366,7 @@ def process_video(url, settings):
         try:
             clip_words = get_transcription(raw_cut_audio)
         except:
-             yield f"⚠️ Erro Transcrição {seg_num}. Pulando.", 0; continue
+            yield f"⚠️ Erro Transcrição {seg_num}. Pulando.", 0; continue
 
         ass_path = f"{work_dir}/subs_{job_id}.ass"
         ass_content = generate_karaoke_ass(clip_words)
