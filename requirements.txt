@@ -1,10 +1,4 @@
-```
-streamlit==1.31.0
-yt-dlp>=2023.11.16
-moviepy==1.0.3
-pydub
-vosk
-opencv-python-hyt-dlp
+yt-dlp
 ffmpeg-python
 vosk
 moviepy
@@ -14,4 +8,3 @@ requests
 edge-tts
 gradio
 pyngrok
-```
