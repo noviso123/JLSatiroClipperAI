@@ -147,6 +147,22 @@ existing_clips = load_gallery()
 if not existing_clips:
     st.info("Nenhum corte encontrado na pasta. Gere o primeiro acima! 👆")
 else:
+    # MANAGEMENT TOOL
+    with st.expander("🛠️ Gerenciar Arquivos"):
+        selected_files = st.multiselect("Selecione vídeos para apagar:", existing_clips, format_func=lambda x: os.path.basename(x))
+        if st.button("🗑️ Apagar Selecionados"):
+            if selected_files:
+                count = 0
+                for f in selected_files:
+                    try:
+                        os.remove(f)
+                        count += 1
+                    except: pass
+                st.success(f"{count} Vídeos apagados!")
+                time.sleep(1)
+                st.rerun()
+
+    # DISPLAY LOOP
     for f_path in existing_clips:
         with st.expander(f"🎬 {os.path.basename(f_path)}", expanded=False):
             c1, c2 = st.columns([3, 1])
