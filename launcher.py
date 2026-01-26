@@ -11,54 +11,46 @@ def run_command(command, background=False):
         return subprocess.run(command, shell=True, check=True)
 
 def main():
-    print("🚀 [Launcher] Iniciando Aplicação V6.4 (Cloudflare UNLIMITED)...")
+    print("🚀 [Launcher] Iniciando Aplicação V6.5 (Ngrok FIXED URL)...")
 
-    # 0. Check Updates
+    # 0. Cleanup Cloudflare (User Request)
+    if os.path.exists("cloudflared"):
+        try: os.remove("cloudflared")
+        except: pass
+    if os.path.exists("cf_log.txt"): os.remove("cf_log.txt")
+
+    # 1. Auth Ngrok
+    NGROK_TOKEN = "2tvNFAWzP9KMYZGpfCqx1EQmmwN_NPCQKjeqHD7pomCtJFVA"
+    STATIC_DOMAIN = "glowing-cricket-firmly.ngrok-free.app"
+
+    # 2. Update Check
     print("🔄 [Launcher] Verificando Atualizações...")
     try: run_command("git pull origin main")
     except: pass
 
-    # 1. Start Streamlit
+    # 3. Authenticate
+    print(f"🔑 Autenticando Ngrok (Domínio Fixo: {STATIC_DOMAIN})...")
+    ngrok.set_auth_token(NGROK_TOKEN)
+
+    # 4. Start Streamlit
     print("🔌 Subindo Servidor Streamlit (Background)...")
     run_command("streamlit run frontend/app.py &", background=True)
     time.sleep(3)
 
-    # 2. Start Cloudflare Tunnel (Replacement for Ngrok)
-    print("🌩️ Criando Túnel Ilimitado (Cloudflare)...")
-    print("⚠️ Motivo: Sua conta Ngrok excedeu o limite gratuito (Erro 725).")
+    # 5. Start Tunnel (Fixed Domain)
+    print("🔗 Conectando Túnel Permanente...")
+    ngrok.kill()
 
-    # Download Cloudflared if not exists
-    if not os.path.exists("cloudflared"):
-        print("⏬ Baixando Binário Cloudflare...")
-        run_command("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O cloudflared")
-        run_command("chmod +x cloudflared")
-
-    # Run Tunnel
-    print("🔗 Gerando Link Público (Aguarde 10s)...")
-    if os.path.exists("cf_log.txt"): os.remove("cf_log.txt")
-
-    run_command("./cloudflared tunnel --url http://localhost:8501 > cf_log.txt 2>&1 &", background=True)
-    time.sleep(8)
-
-    # Extract URL
-    cf_url = None
     try:
-        with open("cf_log.txt", "r") as f:
-            for line in f:
-                if "trycloudflare.com" in line:
-                    match = re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
-                    if match:
-                        cf_url = match.group(0)
-                        break
-    except: pass
-
-    if cf_url:
+        url = ngrok.connect(8501, domain=STATIC_DOMAIN).public_url
         print("\n==================================================")
-        print("🎉 ACESSE SEU APP AQUI (ILIMITADO):")
-        print(f"👉 {cf_url}")
+        print("🎉 SEU LINK FIXO ESTÁ ONLINE:")
+        print(f"👉 {url}")
         print("==================================================")
-    else:
-        print("⚠️ Link demorando. Verifique 'cf_log.txt' ou tente novamente.")
+
+    except Exception as e:
+        print(f"❌ Erro Ngrok: {e}")
+        print("💡 Se aparecer erro 725, sua conta excedeu o limite mensal.")
 
     print("ℹ️ Mantenha esta célula rodando.")
     process = subprocess.Popen(['tail', '-f', '/dev/null'])
