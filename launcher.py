@@ -2,6 +2,7 @@ import subprocess
 import time
 import os
 import sys
+from pyngrok import ngrok
 
 def run_command(command, background=False):
     if background:
@@ -10,34 +11,38 @@ def run_command(command, background=False):
         return subprocess.run(command, shell=True, check=True)
 
 def main():
-    print("🚀 [Launcher] Iniciando Aplicação V3.7...")
+    print("🚀 [Launcher] Iniciando Aplicação V4.0 (Ngrok Edition)...")
+
+    # 0. Auth Ngrok
+    NGROK_TOKEN = "2tvNFAWzP9KMYZGpfCqx1EQmmwN_NPCQKjeqHD7pomCtJFVA"
+    print("🔑 Autenticando Ngrok...")
+    ngrok.set_auth_token(NGROK_TOKEN)
 
     # 1. Start Streamlit
     print("🔌 Subindo Servidor Streamlit (Background)...")
     run_command("streamlit run frontend/app.py &", background=True)
     time.sleep(3) # Wait for it to boot
 
-    # 2. Start LocalTunnel
-    print("🔗 Abrindo Túnel Público (Fixed URL Attempt)...")
-    # Try fixed subdomain first
-    cmd = "lt --port 8501 --subdomain viral-clipper-pro > url.txt 2>&1 &"
-    run_command(cmd, background=True)
-    time.sleep(5)
+    # 2. Start Ngrok Tunnel
+    print("🔗 Criando Túnel Seguro (Ngrok)...")
+    # Kill previous process if any
+    ngrok.kill()
 
-    # 3. Show Info
-    print("\n==================================================")
-    print("🔑 SUA SENHA (Tunnel Password):")
-    os.system("wget -qO - ipv4.icanhazip.com")
-    print("\n==================================================")
+    try:
+        # Create tunnel
+        public_url = ngrok.connect(8501).public_url
+        print("\n==================================================")
+        print("🎉 ACESSE SEU APP AQUI (100% Estável):")
+        print(f"👉 {public_url}")
+        print("==================================================")
+        print("ℹ️ Mantenha esta célula rodando.")
 
-    print("\n👇 CLIQUE NO LINK ABAIXO E INSIRA A SENHA:")
-    if os.path.exists("url.txt"):
-        with open("url.txt", "r") as f:
-            print(f.read().strip())
-    else:
-        print("⚠️ Erro ao ler URL.")
-    print("\n==================================================")
-    print("ℹ️ Mantenha esta célula rodando. Se o link não abrir, tente recarregar.")
+        # Keep alive
+        process = subprocess.Popen(['tail', '-f', '/dev/null'])
+        process.wait()
+
+    except Exception as e:
+        print(f"❌ Erro Ngrok: {e}")
 
 if __name__ == "__main__":
     main()
