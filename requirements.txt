@@ -1,0 +1,10 @@
+streamlit==1.31.0
+yt-dlp>=2023.11.16
+moviepy==1.0.3
+pydub
+vosk
+opencv-python-headless
+pyngrok
+nest_asyncio
+watchdog
+Pillow
