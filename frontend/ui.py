@@ -97,12 +97,12 @@ cobalt_theme = gr.themes.Ocean(
     font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui"]
 )
 
-with gr.Blocks(title="JLSatiro Cobalt V15.5 (CPU)", theme=cobalt_theme) as demo:
+with gr.Blocks(title="JLSatiro Cobalt V15.6 (CPU)", theme=cobalt_theme) as demo:
     with gr.Column(elem_id="main_container", variant="panel"):
         gr.Markdown(
             """
-            # 💎 JLSatiro Cobalt V13.3
-            ### *Clean. Fast. Private. High RAM Usage.*
+            # 💎 JLSatiro Cobalt V15.6
+            ### *Clean. Fast. Private. CPU Optimized.*
             """
         )
 
@@ -117,7 +117,8 @@ with gr.Blocks(title="JLSatiro Cobalt V15.5 (CPU)", theme=cobalt_theme) as demo:
                 lines=1
             )
             with gr.Row():
-                model_drop = gr.Dropdown(["Vosk (Offline)", "Whisper"], value="Vosk (Offline)", show_label=False, container=False, scale=1)
+                # V15.6: Locked to Whisper CPU
+                model_drop = gr.Dropdown(["Whisper AI (CPU)"], value="Whisper AI (CPU)", interactive=False, show_label=False, container=False, scale=1)
                 subs_check = gr.Checkbox(label="Legendas", value=True, container=False, scale=0)
                 btn_run = gr.Button("BAIXAR & CORTAR", variant="primary", scale=1)
 
