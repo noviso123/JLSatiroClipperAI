@@ -76,7 +76,7 @@ def create_narrator_hook(hook_video, output_hook, phrase):
 
     cmd = [
         'ffmpeg', '-i', hook_video, '-i', narrator_audio,
-        '-filter_complex', '[0:a]volume=0.3[original];[1:a]volume=2.0[narrator];[original][narrator]amix=inputs=2:duration=first[a_out]',
+        '-filter_complex', '[0:a]volume=0.1[original];[1:a]volume=2.0[narrator];[original][narrator]amix=inputs=2:duration=first[a_out]',
         '-map', '0:v', '-map', '[a_out]',
         '-c:v', 'copy', '-c:a', 'aac',
         output_hook, '-y'
