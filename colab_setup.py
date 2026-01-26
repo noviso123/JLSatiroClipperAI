@@ -13,7 +13,7 @@ def run_command(command):
         pass
 
 def main():
-    print("💎 [Auto-Update] Iniciando Configuração do Ambiente V13.0 (COBALT)...")
+    print("💎 [Auto-Update] Iniciando Configuração do Ambiente V13.2 (HIGH RAM)...")
 
     # 0. DRIVE DEEP INTEGRATION
     print("☁️ [0/4] Conectando Google Drive (Modo Produção)...")
@@ -56,14 +56,15 @@ def main():
     print("🔄 [2.5/4] Atualizando yt-dlp e Pytubefix (Crítico)...")
     run_command("pip install -U yt-dlp pytubefix -q")
 
-    # 3. AI Model (Vosk)
+    # 3. AI Model (Vosk Large - High RAM Usage)
     model_dir = "model"
     if not os.path.exists(model_dir):
-        print("🧠 [3/4] Baixando Cérebro da IA (Vosk Small PT)...")
-        run_command("wget https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip -q")
-        run_command("unzip -q vosk-model-small-pt-0.3.zip")
-        run_command("mv vosk-model-small-pt-0.3 model")
-        run_command("rm vosk-model-small-pt-0.3.zip")
+        print("🧠 [3/4] Baixando Cérebro da IA (Vosk Large PT - 1.5GB)...")
+        print("    ↳ Isso vai usar sua RAM extra para máxima precisão.")
+        run_command("wget https://alphacephei.com/vosk/models/vosk-model-pt-0.3.zip -q")
+        run_command("unzip -q vosk-model-pt-0.3.zip")
+        run_command("mv vosk-model-pt-0.3 model")
+        run_command("rm vosk-model-pt-0.3.zip")
     else:
         print("🧠 [3/4] Modelo IA já instalado.")
 

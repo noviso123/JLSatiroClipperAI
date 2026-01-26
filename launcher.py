@@ -2,7 +2,7 @@ import os
 import subprocess
 
 def main():
-    print("💎 [Launcher] Iniciando Interface COBALT V13.0...")
+    print("💎 [Launcher] Iniciando Interface COBALT V13.2 (HIGH RAM)...")
     print("🔄 Verificando Atualizações...")
     try: subprocess.run("git pull origin main", shell=True)
     except: pass

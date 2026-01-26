@@ -333,14 +333,14 @@ def process_video(url, settings):
 
         try:
             subprocess.run([
-                'ffmpeg', '-threads', '8',
+                'ffmpeg', '-threads', '16', # Force high thread count
                 '-ss', str(start_t), '-t', str(dur),
                 '-i', video_path,
                 '-filter_complex', filter_complex,
                 '-r', '30', '-vsync', 'cfr',
-                '-c:v', 'libx264', '-preset', 'superfast', '-crf', '25',
+                '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', # Better quality since we have RAM/CPU
                 '-c:a', 'aac', '-ar', '44100',
-                '-max_muxing_queue_size', '4096',
+                '-max_muxing_queue_size', '9999', # Use RAM for buffering
                 raw_cut_path, '-y'
             ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
 
