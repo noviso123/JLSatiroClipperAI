@@ -6,7 +6,6 @@ import datetime
 import random
 import time
 import shutil
-import yt_dlp
 import asyncio
 import edge_tts
 from vosk import Model, KaldiRecognizer
@@ -133,6 +132,39 @@ def cleanup_temps(folder, job_id):
         p = os.path.join(folder, f)
         if os.path.exists(p): os.remove(p)
 
+# --- HYBRID DOWNLOAD START ---
+def download_strategy_pytubefix(url, output_path):
+    from pytubefix import YouTube
+    print("Trying Pytubefix...")
+    yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
+    stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+    if not stream:
+        stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
+    stream.download(output_path=os.path.dirname(output_path), filename=os.path.basename(output_path))
+    return True
+
+def download_strategy_ytdlp_stealth(url, output_path):
+    import yt_dlp
+    print("Trying Yt-Dlp Stealth...")
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': output_path,
+        'quiet': True,
+        'no_warnings': True,
+        'overwrites': True,
+        'nocheckcertificate': True,
+        'source_address': '0.0.0.0',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios']
+            }
+        }
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    return True
+# --- HYBRID DOWNLOAD END ---
+
 def process_video(url, settings):
     settings['lang'] = 'Português (BR)'
 
@@ -147,24 +179,33 @@ def process_video(url, settings):
     video_path = f"{work_dir}/input_video.mp4"
     audio_path = f"{work_dir}/input_audio.wav"
 
-    # 1. Download (Using Pytubefix - New Tech V9.0)
-    yield "⬇️ Baixando vídeo (Nova Tecnologia - Pytubefix)...", 5
+    # 1. Download (HYBRID ENGINE V10.0)
+    yield "⬇️ Tentando Download (Motor A: Pytubefix)...", 5
 
+    success_dl = False
+    error_log = ""
+
+    # Try A: Pytubefix
     try:
-        from pytubefix import YouTube
-
-        yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
-        # Use simple progressive stream (usually 720p) which is fast and reliable
-        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-        if not stream:
-            # Fallback to adaptive
-            stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
-
-        stream.download(output_path=work_dir, filename="input_video.mp4")
-
+        download_strategy_pytubefix(url, video_path)
+        success_dl = True
     except Exception as e:
-        yield f"❌ Erro Download (Pytubefix): {e}", 0
-        return
+        error_log += f"Pytubefix Falhou: {e}\n"
+        pass
+
+    # Try B: Yt-Dlp Stealth (Fallback)
+    if not success_dl:
+        yield "⚠️ Pytubefix falhou. Tentando Motor B (Yt-Dlp Stealth)...", 5
+        try:
+             download_strategy_ytdlp_stealth(url, video_path)
+             success_dl = True
+        except Exception as e:
+            error_log += f"Yt-Dlp Stealth Falhou: {e}\n"
+            pass
+
+    if not success_dl:
+         yield f"❌ TODOS OS MOTORES FALHARAM:\n{error_log}", 0
+         return
 
     # Sync Input to Drive
     try: shutil.copy(video_path, f"{drive_dir}/input_video.mp4")
