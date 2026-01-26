@@ -252,9 +252,9 @@ def process_video(url, settings):
                 '-i', video_path,
                 '-filter_complex', filter_complex,
                 '-r', '30', '-vsync', 'cfr',
-                '-c:v', 'libx264', '-preset', 'medium', '-crf', '23', # Better quality since we have RAM/CPU
+                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', # CPU Optimized
                 '-c:a', 'aac', '-ar', '44100',
-                '-max_muxing_queue_size', '9999', # Use RAM for buffering
+                '-max_muxing_queue_size', '1024', # Standard Buffer
                 raw_cut_path, '-y'
             ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
 
