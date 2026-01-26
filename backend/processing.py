@@ -7,7 +7,6 @@ import time
 import shutil
 import asyncio
 import edge_tts
-import whisper
 
 # --- Global Cache ---
 _CACHED_MODEL = None
