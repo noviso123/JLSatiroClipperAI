@@ -257,18 +257,49 @@ def process_video(url, settings):
             "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
         )
 
+        # V16.4: NVENC HARDWARE ENCODING CHECK
+        # Colab T4 has NVENC. We should use it.
+        use_nvenc = False
         try:
-            subprocess.run([
-                'ffmpeg', '-threads', '16', # Force high thread count
-                '-ss', str(start_t), '-t', str(dur),
-                '-i', video_path,
-                '-filter_complex', filter_complex,
-                '-r', '30', '-vsync', 'cfr',
-                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24', # CPU Optimized
-                '-c:a', 'aac', '-ar', '44100',
-                '-max_muxing_queue_size', '1024', # Standard Buffer
-                raw_cut_path, '-y'
-            ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
+             # Check if we have an NVIDIA GPU available for FFmpeg
+            subprocess.check_output('ffmpeg -encoders | grep h264_nvenc', shell=True)
+            use_nvenc = True
+        except: pass
+
+        ffmpeg_cmd = [
+            'ffmpeg', '-threads', '16',
+            '-ss', str(start_t), '-t', str(dur),
+            '-i', video_path,
+            '-filter_complex', filter_complex,
+            '-r', '30', '-vsync', 'cfr'
+        ]
+
+        if use_nvenc:
+            # GPU ENCODING (BLAZING FAST)
+            print(f"    🚀 GPU NVENC Ativo para Corte {seg_num}!")
+            ffmpeg_cmd.extend([
+                '-c:v', 'h264_nvenc',
+                '-preset', 'p4', # p1=fastest, p7=slowest. p4 is balanced (fast)
+                '-rc', 'constqp', '-qp', '26', # Constant Quality equivalent
+                '-b:v', '0'
+            ])
+        else:
+            # CPU ENCODING (FALLBACK)
+            print(f"    🐌 CPU Encoding para Corte {seg_num} (Pode demorar)...")
+            ffmpeg_cmd.extend([
+                '-c:v', 'libx264',
+                '-preset', 'veryfast',
+                '-crf', '24'
+            ])
+
+        ffmpeg_cmd.extend([
+            '-c:a', 'aac', '-ar', '44100',
+            '-max_muxing_queue_size', '1024',
+            raw_cut_path, '-y'
+        ])
+
+        try:
+            subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
 
             subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
@@ -292,15 +323,23 @@ def process_video(url, settings):
         # 6. Burn
         subtitled_cut = f"{work_dir}/main_clip_{job_id}.mp4"
         vf = f"ass={ass_path}"
+
+        burn_cmd = [
+            'ffmpeg', '-threads', '16',
+            '-i', raw_cut_path,
+            '-vf', vf,
+            '-r', '30', '-vsync', 'cfr'
+        ]
+
+        if use_nvenc:
+             burn_cmd.extend(['-c:v', 'h264_nvenc', '-preset', 'p4', '-rc', 'constqp', '-qp', '26', '-b:v', '0'])
+        else:
+             burn_cmd.extend(['-c:v', 'libx264', '-preset', 'medium', '-crf', '23'])
+
+        burn_cmd.extend(['-c:a', 'copy', subtitled_cut, '-y'])
+
         try:
-            subprocess.run(['ffmpeg', '-threads', '16',
-                           '-i', raw_cut_path,
-                           '-vf', vf,
-                           '-r', '30', '-vsync', 'cfr',
-                           '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
-                           '-c:a', 'copy',
-                           subtitled_cut, '-y'],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
+            subprocess.run(burn_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
         except subprocess.TimeoutExpired: continue
 
         # 7. Hook & Thumb
