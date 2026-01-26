@@ -19,18 +19,21 @@ def scan_gallery():
     """Returns a list of video paths for the gallery"""
     clips = []
     if os.path.exists(LOCAL_GALLERY):
-        for f in os.listdir(LOCAL_GALLERY):
-            if f.endswith(".mp4"):
-                clips.append(os.path.join(LOCAL_GALLERY, f))
+        try:
+            for f in os.listdir(LOCAL_GALLERY):
+                if f.endswith(".mp4"):
+                    clips.append(os.path.join(LOCAL_GALLERY, f))
+        except: pass
     # Sort by new
-    clips.sort(key=os.path.getmtime, reverse=True)
-    # Gradio Gallery expects a list of (path, label) tuples or just paths
+    try:
+        clips.sort(key=os.path.getmtime, reverse=True)
+    except: pass
     return clips
 
 def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progress=gr.Progress()):
     """Generator function for Gradio Output"""
     if not url:
-        yield "⚠️ Erro: URL Vazia", []
+        yield "⚠️ Erro: URL Vazia", gr.Skip()
         return
 
     # Settings
@@ -44,11 +47,10 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
 
     # Clean Start
     progress(0, desc="Iniciando...")
-    log_history = "🚀 Iniciando Fábrica...\n"
+    log_history = "💎 Iniciando Motor Cobalt V13.3...\n"
 
-    # Cache gallery once to avoid looking at Drive every loop (V12.3 Fix)
-    cached_gallery = scan_gallery()
-    yield log_history, cached_gallery
+    # V12.4 FIX: Use gr.Skip() to avoid touching the Gallery (blocked by Drive IO)
+    yield log_history, gr.Skip()
 
     try:
         for result in processing.process_video(url, settings):
@@ -59,13 +61,12 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
 
                 # Update Text Log
                 log_history = f"[{pct}%] {status}\n" + log_history
-                yield log_history, cached_gallery # Yield cached (fast)
+                yield log_history, gr.Skip() # Update logs, SKIP gallery (Fastest)
 
             elif isinstance(result, str):
-                # Finished Clip Path - NOW we refresh gallery
+                # Finished Clip Path - NOW we refresh gallery (Only once at end of clip)
                 log_history = f"✅ CORTE PRONTO: {os.path.basename(result)}\n" + log_history
-                cached_gallery = scan_gallery() # Update cache
-                yield log_history, cached_gallery
+                yield log_history, scan_gallery()
 
         log_history = "✨ PROCESSAMENTO FINALIZADO COM SUCESSO!\n" + log_history
         progress(1, desc="Concluído!")
@@ -73,15 +74,12 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
 
     except Exception as e:
         log_history = f"❌ Erro Crítico: {str(e)}\n" + log_history
-        yield log_history, cached_gallery
+        yield log_history, gr.Skip()
 
 def delete_all():
     """Factory Reset"""
     try:
         shutil.rmtree("/content/temp_work", ignore_errors=True)
-        # Clear Drive? User asked for total delete.
-        # But let's be safe, maybe just clean local?
-        # The user's request "APAGAR POR COMPLETO" usually implies result files too.
         if os.path.exists(LOCAL_GALLERY):
              for f in os.listdir(LOCAL_GALLERY):
                  fp = os.path.join(LOCAL_GALLERY, f)
@@ -90,38 +88,54 @@ def delete_all():
     except Exception as e:
         return f"Erro ao limpar: {e}", scan_gallery()
 
-# --- INTERFACE ---
-with gr.Blocks(title="JLSatiro AI Studio V12.4", theme=gr.themes.Soft()) as demo:
-    gr.Markdown("# 🎬 JLSatiro Clipper AI - V12.4 (INSTANT UI FIX)")
-    gr.Markdown("### ⚡ Sistema de Cortes Virais Automáticos (Google API + Cookies)")
+# --- INTERFACE (V13.3 COBALT DESIGN) ---
+cobalt_theme = gr.themes.Ocean(
+    primary_hue="indigo",
+    secondary_hue="zinc",
+    neutral_hue="slate",
+    text_size="lg",
+    font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui"]
+)
 
-    with gr.Row():
-        with gr.Column(scale=1):
-            url_input = gr.Textbox(label="YouTube URL", placeholder="https://youtube.com/...")
-            model_drop = gr.Dropdown(["Vosk (Offline)", "Whisper"], label="Modelo", value="Vosk (Offline)")
-            subs_check = gr.Checkbox(label="Queimar Legendas", value=True)
+with gr.Blocks(title="JLSatiro Cobalt V13.3 (PRO)", theme=cobalt_theme) as demo:
+    with gr.Column(elem_id="main_container", variant="panel"):
+        gr.Markdown(
+            """
+            # 💎 JLSatiro Cobalt V13.3
+            ### *Clean. Fast. Private. High RAM Usage.*
+            """
+        )
 
+        # COBALT-STYLE: Input is King
+        with gr.Group():
+            url_input = gr.Textbox(
+                label="",
+                placeholder="Cole o link do YouTube aqui...",
+                show_label=False,
+                container=False,
+                scale=3,
+                lines=1
+            )
             with gr.Row():
-                btn_run = gr.Button("🚀 INICIAR PROCESSAMENTO (Processar Fila)", variant="primary", scale=2)
-                btn_reset = gr.Button("🗑️ LIMPAR TUDO", variant="stop", scale=1)
+                model_drop = gr.Dropdown(["Vosk (Offline)", "Whisper"], value="Vosk (Offline)", show_label=False, container=False, scale=1)
+                subs_check = gr.Checkbox(label="Legendas", value=True, container=False, scale=0)
+                btn_run = gr.Button("BAIXAR & CORTAR", variant="primary", scale=1)
 
-            # Stealth Mode Active (Default) -> Advanced Options below
-            with gr.Accordion("🛡️ Acesso Avançado / Anti-Bot (Cookies & API)", open=False):
-                gr.Markdown("### 🔐 Área de Credenciais (Opcional)")
-                gr.Markdown("Se tiver problemas, suba seus arquivos aqui. O sistema salva automaticamente.")
-                with gr.Row():
-                    cookies_input = gr.File(label="1. Cookies (cookies.txt)", file_types=[".txt"])
-                    oauth_input = gr.File(label="2. Client Secret (client_secret.json)", file_types=[".json"])
+        # Hidden/Advanced (Cobalt hides complexity)
+        with gr.Accordion("⚙️ Configurações Avançadas / Autenticação", open=False):
+             gr.Markdown("### 🔐 Credenciais (Anti-Bot)")
+             cookies_input = gr.File(label="Cookies (cookies.txt)", file_types=[".txt"])
+             oauth_input = gr.File(label="Client Secret (json)", file_types=[".json"])
+             btn_reset = gr.Button("🗑️ Limpar Cache", variant="secondary", size="sm")
+             reset_msg = gr.Textbox(interactive=False, show_label=False)
 
-            reset_msg = gr.Textbox(label="Status do Sistema", interactive=False, placeholder="O sistema está pronto.")
-
-        with gr.Column(scale=2):
-            logs = gr.TextArea(label="📜 Log de Execução (Acompanhe aqui)", lines=12, interactive=False, show_copy_button=True)
+    # Clean Output Area
+    with gr.Row():
+        logs = gr.TextArea(label="Terminal Cobalt", lines=8, interactive=False, show_copy_button=True)
 
     gr.Markdown("---")
-    gr.Markdown("## 📂 Sua Galeria (Google Drive)")
-    gr.Markdown("_Os vídeos aparecem aqui automaticamente assim que ficam prontos._")
-    gallery = gr.Gallery(label="Cortes Prontos", columns=[3], rows=[2], object_fit="contain", height="auto", show_share_button=True)
+    gr.Markdown("## 📂 Galeria")
+    gallery = gr.Gallery(label="", columns=[4], rows=[2], object_fit="cover", height="auto", show_share_button=True)
 
     # Refresh gallery on load
     demo.load(scan_gallery, outputs=gallery)

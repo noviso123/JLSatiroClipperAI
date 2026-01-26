@@ -110,6 +110,7 @@ def generate_thumbnail(video_path, output_path, unique_id, text="VIRAL CLIP"):
 
 def get_transcription(audio_path, model_path):
     model = get_cached_model(model_path)
+    # VOSK LARGE MODEL - 1.5GB RAM usage expected
     wf = wave.open(audio_path, "rb")
     rec = KaldiRecognizer(model, wf.getframerate())
     rec.SetWords(True)
@@ -132,38 +133,10 @@ def cleanup_temps(folder, job_id):
         p = os.path.join(folder, f)
         if os.path.exists(p): os.remove(p)
 
-# --- HYBRID DOWNLOAD ENGINE V12.0 (OAUTH + COOKIES) ---
-def download_authenticated_ytdlp(url, output_path, cookies_path):
+# --- HYBRID DOWNLOAD ENGINE V13.3 (COBALT CORE) ---
+def download_authenticated_ytdlp(url, output_path, cookies_path=None):
     import yt_dlp
-    print("Trying Authenticated Yt-Dlp (Gold Standard)...")
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': output_path,
-        'quiet': True,
-        'no_warnings': True,
-        'overwrites': True,
-        'nocheckcertificate': True,
-        'cookiefile': cookies_path, # THE GOLD KEY
-        'source_address': '0.0.0.0'
-    }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    return True
-
-def download_strategy_pytubefix(url, output_path):
-    from pytubefix import YouTube
-    print("Trying Pytubefix...")
-    # V12 Update: Try to use client_secret if available implies oauth, but effectively we use 'client=ANDROID' for best headless result
-    yt = YouTube(url, client='ANDROID', use_oauth=False, allow_oauth_cache=False)
-    stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-    if not stream:
-        stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
-    stream.download(output_path=os.path.dirname(output_path), filename=os.path.basename(output_path))
-    return True
-
-def download_strategy_ytdlp_stealth(url, output_path):
-    import yt_dlp
-    print("Trying Yt-Dlp Stealth...")
+    print("💎 Trying Cobalt Engine (Yt-Dlp)...")
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': output_path,
@@ -172,14 +145,31 @@ def download_strategy_ytdlp_stealth(url, output_path):
         'overwrites': True,
         'nocheckcertificate': True,
         'source_address': '0.0.0.0',
+        # V13.3: Use standard browser headers (Cobalt style)
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios']
+                'player_client': ['web', 'android', 'ios']
             }
         }
     }
+
+    if cookies_path:
+        ydl_opts['cookiefile'] = cookies_path
+        print("   ↳ 🍪 Cookies Attached!")
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
+    return True
+
+def download_strategy_pytubefix(url, output_path):
+    from pytubefix import YouTube
+    print("💎 Fallback: Trying Pytubefix (Client=ANDROID)...")
+    # V13.3: Use PoToken-like approach via client choice
+    yt = YouTube(url, client='ANDROID')
+    stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+    if not stream:
+        stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
+    stream.download(output_path=os.path.dirname(output_path), filename=os.path.basename(output_path))
     return True
 # --- HYBRID DOWNLOAD END ---
 
@@ -197,63 +187,66 @@ def process_video(url, settings):
     video_path = f"{work_dir}/input_video.mp4"
     audio_path = f"{work_dir}/input_audio.wav"
 
-    # --- V12.0: CLIENT SECRET CHECK ---
-    if os.path.exists("client_secret.json"):
-        yield "🔑  Client Secret (OAuth) Detectado! Sistema validado.", 2
-
-    # --- COOKIE PERSISTENCE LOGIC (V12.0) ---
+    # --- V12.0: CREDENTIALS MANAGER ---
     persistent_cookie_path = f"{drive_dir}/auth_cookies.txt"
+    persistent_oauth_path = f"{drive_dir}/client_secret.json"
+
     active_cookie_path = None
 
-    # Case A: User uploaded a new file
+    # 1. HANDLE OAUTH (Client Secret)
+    if 'oauth_path' in settings and settings['oauth_path']:
+        try:
+            shutil.copy(settings['oauth_path'], persistent_oauth_path)
+            shutil.copy(settings['oauth_path'], "client_secret.json") # Local for current run
+            yield "🔑 Client Secret Novo Salvo no Drive!", 1
+        except: pass
+    elif os.path.exists(persistent_oauth_path):
+        shutil.copy(persistent_oauth_path, "client_secret.json")
+        yield "♻️ Client Secret Carregado do Drive.", 1
+
+    if os.path.exists("client_secret.json"):
+        yield "✅ API do Google Ativada (OAuth Detectado).", 2
+
+    # 2. HANDLE COOKIES
+    # Case A: User uploaded
     if 'cookies_path' in settings and settings['cookies_path']:
         try:
             shutil.copy(settings['cookies_path'], persistent_cookie_path)
             active_cookie_path = persistent_cookie_path
-            yield "💾 Cookies Novos Salvos no Drive (Para sempre)!", 3
+            yield "💾 Cookies Novos Salvos no Drive!", 3
         except:
             active_cookie_path = settings['cookies_path']
 
-    # Case B: No upload, check for saved file
+    # Case B: Stored
     elif os.path.exists(persistent_cookie_path):
         active_cookie_path = persistent_cookie_path
-        yield "♻️ Usando Cookies Salvos no Drive (Auto-Login)...", 3
+        yield "♻️ Cookies Carregados do Drive.", 3
 
-    # 1. Download (HYBRID ENGINE V12.0)
-    yield "⬇️ Iniciando Download (Motor V12.0)...", 5
+    # 1. Download (HYBRID ENGINE V13.3)
+    yield "⬇️ [Cobalt] Iniciando Download...", 5
 
     success_dl = False
     error_log = ""
 
-    # STRATEGY 1: COOKIES (GOLD STANDARD)
-    if active_cookie_path:
-        yield "🍪 Modo Gold (Autenticado) Ativado...", 10
-        try:
-            download_authenticated_ytdlp(url, video_path, active_cookie_path)
-            success_dl = True
-        except Exception as e:
-            error_log += f"Authenticated DL Falhou: {e}\n"
-            yield f"⚠️ Autenticação falhou ({e}). Tentando fallback...", 10
-            pass
+    # STRATEGY 1: COBALT NATIVE (YT-DLP) - TRY FIRST ALWAYS (V13.3)
+    # The real Cobalt tries yt-dlp first. We follow suit.
+    yield "💎 Engine 1: Cobalt Core (Yt-Dlp)...", 8
+    try:
+        download_authenticated_ytdlp(url, video_path, active_cookie_path)
+        success_dl = True
+    except Exception as e:
+        error_log += f"Cobalt Core Falhou: {e}\n"
+        yield f"⚠️ Cobalt Core falhou. Mudando para Fallback...", 10
+        pass
 
     # STRATEGY 2: PYTUBEFIX
     if not success_dl:
-        yield "⬇️ Tentando Pytubefix (Sem Cookies)...", 15
+        yield "💎 Engine 2: Fallback Driver (Pytubefix)...", 15
         try:
             download_strategy_pytubefix(url, video_path)
             success_dl = True
         except Exception as e:
-            error_log += f"Pytubefix Falhou: {e}\n"
-            pass
-
-    # STRATEGY 3: YT-DLP STEALTH
-    if not success_dl:
-        yield "⚠️ Pytubefix falhou. Tentando Motor C (Yt-Dlp Stealth)...", 20
-        try:
-             download_strategy_ytdlp_stealth(url, video_path)
-             success_dl = True
-        except Exception as e:
-            error_log += f"Yt-Dlp Stealth Falhou: {e}\n"
+            error_log += f"Fallback Driver Falhou: {e}\n"
             pass
 
     if not success_dl:
@@ -265,11 +258,11 @@ def process_video(url, settings):
     except: pass
 
     # 2. Extract Full Audio (for Discovery)
-    yield "🔊 Lendo Áudio Original...", 25
-    subprocess.run(['ffmpeg', '-threads', '4', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    yield "🔊 Lendo Áudio Original (Hi-Res)...", 25
+    subprocess.run(['ffmpeg', '-threads', '16', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # 3. Discovery Transcription
-    yield "🧠 Mapeando Conteúdo...", 30
+    yield "🧠 Mapeando Conteúdo (Big Brain Vosk)...", 30
     model_path = "model"
     if not os.path.exists(model_path): yield "❌ Modelo não encontrado!", 0; return
 
@@ -367,11 +360,11 @@ def process_video(url, settings):
         subtitled_cut = f"{work_dir}/main_clip_{job_id}.mp4"
         vf = f"ass={ass_path}"
         try:
-            subprocess.run(['ffmpeg', '-threads', '8',
+            subprocess.run(['ffmpeg', '-threads', '16',
                            '-i', raw_cut_path,
                            '-vf', vf,
                            '-r', '30', '-vsync', 'cfr',
-                           '-c:v', 'libx264', '-preset', 'superfast', '-crf', '25',
+                           '-c:v', 'libx264', '-preset', 'medium', '-crf', '23',
                            '-c:a', 'copy',
                            subtitled_cut, '-y'],
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
