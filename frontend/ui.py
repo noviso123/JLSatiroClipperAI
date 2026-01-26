@@ -27,7 +27,7 @@ def scan_gallery():
     # Gradio Gallery expects a list of (path, label) tuples or just paths
     return clips
 
-def start_processing(url, model_type, burn_subs, progress=gr.Progress()):
+def start_processing(url, model_type, burn_subs, cookies_file, progress=gr.Progress()):
     """Generator function for Gradio Output"""
     if not url:
         yield "⚠️ Erro: URL Vazia", []
@@ -37,7 +37,8 @@ def start_processing(url, model_type, burn_subs, progress=gr.Progress()):
     settings = {
         "model": model_type,
         "lang": "Português (BR)",
-        "burn_subtitles": burn_subs
+        "burn_subtitles": burn_subs,
+        "cookies_path": cookies_file.name if cookies_file else None
     }
 
     log_history = ""
@@ -95,24 +96,32 @@ with gr.Blocks(title="JLSatiro AI Studio V7.2", theme=gr.themes.Soft()) as demo:
             model_drop = gr.Dropdown(["Vosk (Offline)", "Whisper"], label="Modelo", value="Vosk (Offline)")
             subs_check = gr.Checkbox(label="Queimar Legendas", value=True)
 
-            btn_run = gr.Button("🚀 INICIAR CORTES", variant="primary")
-            btn_reset = gr.Button("🔥 APAGAR TUDO", variant="stop")
+            with gr.Row():
+                btn_run = gr.Button("🚀 INICIAR PROCESSAMENTO (Processar Fila)", variant="primary", scale=2)
+                btn_reset = gr.Button("🗑️ LIMPAR TUDO", variant="stop", scale=1)
 
-            reset_msg = gr.Textbox(label="Status Sistema", interactive=False)
+            with gr.Accordion("🔓 Desbloqueio (Anti-Bot)", open=False):
+                gr.Markdown("Se der erro de 'Sign in', faça upload do `cookies.txt` (Use a extensão 'Get cookies.txt LOCALLY')")
+                cookies_input = gr.File(label="Arquivo de Cookies (cookies.txt)", file_types=[".txt"])
+
+            reset_msg = gr.Textbox(label="Status do Sistema", interactive=False, placeholder="O sistema está pronto.")
 
         with gr.Column(scale=2):
-            logs = gr.Textbox(label="Log de Processamento", lines=10, interactive=False)
+            logs = gr.TextArea(label="📜 Log de Execução (Acompanhe aqui)", lines=12, interactive=False, show_copy_button=True)
 
-    gr.Markdown("## 📂 Galeria (Drive)")
-    gallery = gr.Gallery(label="Cortes Gerados", columns=3, height="auto")
+    gr.Markdown("---")
+    gr.Markdown("## 📂 Sua Galeria (Google Drive)")
+    gr.Markdown("_Os vídeos aparecem aqui automaticamente assim que ficam prontos._")
+    gallery = gr.Gallery(label="Cortes Prontos", columns=[3], rows=[2], object_fit="contain", height="auto", show_share_button=True)
 
     # Refresh gallery on load
     demo.load(scan_gallery, outputs=gallery)
 
     # Actions
-    btn_run.click(start_processing, inputs=[url_input, model_drop, subs_check], outputs=[logs, gallery])
+    btn_run.click(start_processing, inputs=[url_input, model_drop, subs_check, cookies_input], outputs=[logs, gallery])
     btn_reset.click(delete_all, outputs=[reset_msg, gallery])
 
 if __name__ == "__main__":
     # SHARE=TRUE creates the public link automatically!
     demo.launch(share=True, allowed_paths=["/content/drive"])
+```

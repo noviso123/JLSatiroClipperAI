@@ -162,14 +162,24 @@ def process_video(url, settings):
 
     # 1. Download
     yield "⬇️ Baixando vídeo (SSD Local)...", 5
+
     # Relaxed format: prefer mp4 but take best if needed to avoid empty file
     ydl_opts = {
         'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         'outtmpl': video_path,
         'quiet': True,
         'no_warnings': True,
-        'overwrites': True
+        'overwrites': True,
+        'nocheckcertificate': True,
     }
+
+    # Inject Cookies if provided in settings
+    if 'cookies_path' in settings and settings['cookies_path']:
+        ydl_opts['cookiefile'] = settings['cookies_path']
+        yield "🍪 Cookies Detectados! Usando autenticação...", 5
+    else:
+        # User Agent Spoofing as fallback
+        ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
