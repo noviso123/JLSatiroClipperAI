@@ -90,13 +90,6 @@ def create_narrator_hook(hook_video, output_hook, phrase, job_id):
 def generate_thumbnail(video_path, output_path, unique_id, text="VIRAL CLIP"):
     try:
         frame_jpg = output_path.replace(".mp4", ".jpg")
-        # Try to extract frame from middle of source to be unique
-        # Get duration first? Assume we have access or just pick random offset?
-        # Actually video_path here is the original full video. We need the RAW CUT path preferably to be relevant.
-        # But hook function receives raw video path? Wait.
-        # In main loop, we pass valid path.
-
-        # Taking frame at 30% of the clip duration.
         subprocess.run(['ffmpeg', '-ss', '2', '-i', video_path, '-frames:v', '1', '-q:v', '2', frame_jpg, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         if not os.path.exists(frame_jpg): return None
@@ -110,8 +103,6 @@ def generate_thumbnail(video_path, output_path, unique_id, text="VIRAL CLIP"):
         if not font: font = ImageFont.load_default()
         W, H = img.size; w_text, h_text = 600, 150; x, y = (W - w_text)/2, (H - h_text)/2
         draw.text((x, y), text, fill="yellow", stroke_width=3, stroke_fill="black", font=font)
-
-        # Add Unique ID visual ? No just text.
 
         img.save(frame_jpg)
         subprocess.run(['ffmpeg', '-loop', '1', '-i', frame_jpg, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-c:v', 'libx264', '-t', '0.1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', output_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -145,46 +136,34 @@ def cleanup_temps(folder, job_id):
 def process_video(url, settings):
     settings['lang'] = 'Português (BR)'
 
-    # WORKSPACE STRATEGY:
-    # 1. Work in Local SSD (Fast/Stable)
-    # 2. Sync to Drive (Symlinked 'downloads' folder) for persistence
-
     work_dir = "/content/temp_work" # Local SSD
     drive_dir = "downloads" # Points to Drive via Symlink
 
     if os.path.exists(work_dir): shutil.rmtree(work_dir)
     os.makedirs(work_dir, exist_ok=True)
-    os.makedirs(drive_dir, exist_ok=True) # Ensure symlink or folder exists
+    os.makedirs(drive_dir, exist_ok=True)
 
     # Files (Local)
     video_path = f"{work_dir}/input_video.mp4"
     audio_path = f"{work_dir}/input_audio.wav"
 
-    # 1. Download
-    yield "⬇️ Baixando vídeo (SSD Local)...", 5
+    # 1. Download (Using Pytubefix - New Tech V9.0)
+    yield "⬇️ Baixando vídeo (Nova Tecnologia - Pytubefix)...", 5
 
-    # Relaxed format: prefer mp4 but take best if needed to avoid empty file
-    ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': video_path,
-        'quiet': True,
-        'no_warnings': True,
-        'overwrites': True,
-        'nocheckcertificate': True,
-        'source_address': '0.0.0.0', # Force IPv4 (Fixes many Colab blocks)
-        # STEALTH MODE: Impersonate Android Client to bypass 'Sign in' (No Cookies Needed)
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'web_embedded']
-            }
-        }
-    }
-
-    # Try Download with Stealth Mode
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
+        from pytubefix import YouTube
+
+        yt = YouTube(url, use_oauth=False, allow_oauth_cache=False)
+        # Use simple progressive stream (usually 720p) which is fast and reliable
+        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+        if not stream:
+            # Fallback to adaptive
+            stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
+
+        stream.download(output_path=work_dir, filename="input_video.mp4")
+
     except Exception as e:
-        yield f"❌ Erro Download (Stealth Mode): {e}", 0
+        yield f"❌ Erro Download (Pytubefix): {e}", 0
         return
 
     # Sync Input to Drive
@@ -252,18 +231,12 @@ def process_video(url, settings):
         raw_cut_path = f"{work_dir}/raw_cut_{job_id}.mp4"
         raw_cut_audio = f"{work_dir}/raw_cut_{job_id}.wav"
 
-        # FILTER: Vertical Blur-Fill (Standard Viral Style)
-        # 1. Background: Original -> Scale to Cover 1080x1920 -> Crop Center -> Heavy Blur
-        # 2. Foreground: Original -> Scale to 1080 width -> Overlay in Center
-        # 3. Force 30fps
-
         filter_complex = (
             "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10[bg];"
             "[0:v]scale=1080:-1[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1"
         )
 
-        # TIMEOUT PROTECTION: 300s (5min) per cut max
         try:
             subprocess.run([
                 'ffmpeg', '-threads', '8',
@@ -283,7 +256,6 @@ def process_video(url, settings):
             yield f"⚠️ Corte {seg_num} demorou demais e foi pulado.", 0
             continue
 
-        # Backup Raw to Drive
         try: shutil.copy(raw_cut_path, f"{drive_dir}/raw_cut_{job_id}.mp4")
         except: pass
 
@@ -301,7 +273,6 @@ def process_video(url, settings):
         subtitled_cut = f"{work_dir}/main_clip_{job_id}.mp4"
         vf = f"ass={ass_path}"
         try:
-            # Re-enforce r 30 here to be safe during burn
             subprocess.run(['ffmpeg', '-threads', '8',
                            '-i', raw_cut_path,
                            '-vf', vf,
@@ -329,7 +300,6 @@ def process_video(url, settings):
         final_out_local = f"{work_dir}/viral_clip_{seg_num}_{job_id}.mp4"
         list_txt = f"{work_dir}/list_{job_id}.txt"
 
-        # ABSOLUTE PATHS for local concat
         abs_thumb = os.path.abspath(thumb_out)
         abs_hook = os.path.abspath(final_hook)
         abs_main = os.path.abspath(subtitled_cut)
@@ -347,17 +317,10 @@ def process_video(url, settings):
         except: pass
 
         if os.path.exists(final_out_local) and os.path.getsize(final_out_local) > 1000:
-            # 9. FINAL COPY TO DRIVE (The most important step)
+            # 9. FINAL COPY TO DRIVE
             final_out_drive = f"{drive_dir}/viral_clip_{seg_num}_{job_id}.mp4"
             shutil.copy(final_out_local, final_out_drive)
-
-            # Clean Local Temps
             cleanup_temps(work_dir, job_id)
-
-            # Yield the DRIVE Path (so the user can download it from Streamlit which looks at 'downloads' symlink)
-            # Actually, Streamlit 'st.download_button' needs a path it can read.
-            # 'drive_dir' is 'downloads', which is symlinked to user drive.
-            # So yielding 'downloads/file.mp4' works great.
             yield final_out_drive
         else:
             yield f"⚠️ Erro ao gerar corte {seg_num} (Arquivo Vazio/Falha FFmpeg).", 0
