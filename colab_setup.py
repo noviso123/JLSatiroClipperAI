@@ -53,8 +53,8 @@ def main():
     # 2. Python Dependencies
     print("🐍 [2/4] Instalando Dependências Python...")
     run_command("pip install -r requirements.txt -q")
-    print("🔄 [2.5/4] Atualizando yt-dlp (Crítico)...")
-    run_command("pip install -U yt-dlp -q")
+    print("🔄 [2.5/4] Atualizando yt-dlp e Pytubefix (Crítico)...")
+    run_command("pip install -U yt-dlp pytubefix -q")
 
     # 3. AI Model (Vosk)
     model_dir = "model"
