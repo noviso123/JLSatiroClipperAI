@@ -3,10 +3,11 @@ import os
 import time
 import shutil
 import sys
+import threading
 
 # Add backend to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from backend import processing
+from backend import processing, state_manager
 
 # Global Work Vars
 DRIVE_GALLERY = "/content/drive/MyDrive/JLSatiro_AI_Studio"
@@ -30,11 +31,35 @@ def scan_gallery():
     except: pass
     return clips
 
-def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progress=gr.Progress()):
-    """Generator function for Gradio Output"""
+def run_worker(url, settings):
+    """Background worker thread"""
+    state_manager.set_running(True)
+    state_manager.update_state("progress", 0)
+    state_manager.append_log(f"💎 Iniciando Motor Cobalt V13.3...\n🚀 URL: {url}")
+
+    try:
+        # process_video is a generator, we must consume it
+        for result in processing.process_video(url, settings):
+            # Check stop inside the loop consumption too just in case
+            if state_manager.check_stop_requested():
+                break
+
+            if isinstance(result, str):
+                 state_manager.append_log(f"✅ CORTE PRONTO: {os.path.basename(result)}")
+
+    except Exception as e:
+        state_manager.append_log(f"❌ Erro Crítico: {str(e)}")
+    finally:
+        state_manager.append_log("🏁 Processamento Finalizado.")
+        state_manager.set_running(False)
+
+def start_processing(url, model_type, burn_subs, cookies_file, oauth_file):
+    """Starts the background thread"""
     if not url:
-        yield "⚠️ Erro: URL Vazia", gr.Skip()
-        return
+        return "⚠️ Erro: URL Vazia"
+
+    if state_manager.get_state()['is_running']:
+        return "⚠️ Já existe um processo em andamento! Aguarde ou limpe o sistema."
 
     # Settings
     settings = {
@@ -45,48 +70,41 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
         "oauth_path": oauth_file.name if oauth_file else None
     }
 
-    # Clean Start
-    progress(0, desc="Iniciando...")
-    log_history = "💎 Iniciando Motor Cobalt V13.3...\n"
+    t = threading.Thread(target=run_worker, args=(url, settings))
+    t.start()
+    return "✅ Processamento Iniciado em Segundo Plano!"
 
-    # V12.4 FIX: Use gr.skip() to avoid touching the Gallery (blocked by Drive IO)
-    yield log_history, gr.skip()
+def poll_system():
+    """Poller for UI updates"""
+    s = state_manager.get_state()
+    log = s.get('log_history', '')
+    run_status = s.get('is_running', False)
+    pct = s.get('progress', 0)
 
-    try:
-        for result in processing.process_video(url, settings):
-            if isinstance(result, tuple):
-                status, pct = result
-                # Update Visual Bar
-                progress(pct / 100, desc=status)
+    status_text = f"Status: {'🟢 RODANDO' if run_status else '⚪ AGUARDANDO'} | Progresso Global: {pct}%"
 
-                # Update Text Log
-                log_history = f"[{pct}%] {status}\n" + log_history
-                yield log_history, gr.skip() # Update logs, SKIP gallery (Fastest)
+    return log, scan_gallery(), status_text
 
-            elif isinstance(result, str):
-                # Finished Clip Path - NOW we refresh gallery (Only once at end of clip)
-                log_history = f"✅ CORTE PRONTO: {os.path.basename(result)}\n" + log_history
-                yield log_history, scan_gallery()
+def nuke_system():
+    """Factory Reset - Clear All"""
+    state_manager.request_stop()
+    state_manager.append_log("🛑 INTERROMPENDO TUDO E LIMPANDO...")
 
-        log_history = "✨ PROCESSAMENTO FINALIZADO COM SUCESSO!\n" + log_history
-        progress(1, desc="Concluído!")
-        yield log_history, scan_gallery() # Final update
+    # Wait briefly for thread to notice stop
+    time.sleep(1.5)
 
-    except Exception as e:
-        log_history = f"❌ Erro Crítico: {str(e)}\n" + log_history
-        yield log_history, gr.skip()
-
-def delete_all():
-    """Factory Reset"""
     try:
         shutil.rmtree("/content/temp_work", ignore_errors=True)
         if os.path.exists(LOCAL_GALLERY):
              for f in os.listdir(LOCAL_GALLERY):
                  fp = os.path.join(LOCAL_GALLERY, f)
                  if os.path.isfile(fp): os.unlink(fp)
-        return "♻️ Sistema e Galeria Formatados!", scan_gallery()
+
+        state_manager.clear_state()
+        state_manager.append_log("♻️ SISTEMA FORMATADO COM SUCESSO.")
+        return "♻️ Login/Cache/Arquivos Limpos!", scan_gallery(), "Status: ⚪ Resetado"
     except Exception as e:
-        return f"Erro ao limpar: {e}", scan_gallery()
+        return f"Erro ao limpar: {e}", scan_gallery(), f"Erro: {e}"
 
 # --- INTERFACE (V13.3 COBALT DESIGN) ---
 cobalt_theme = gr.themes.Ocean(
@@ -106,7 +124,6 @@ with gr.Blocks(title="JLSatiro Cobalt V16.5 (HYPER)", theme=cobalt_theme) as dem
             """
         )
 
-        # COBALT-STYLE: Input is King
         with gr.Group():
             url_input = gr.Textbox(
                 label="",
@@ -117,34 +134,43 @@ with gr.Blocks(title="JLSatiro Cobalt V16.5 (HYPER)", theme=cobalt_theme) as dem
                 lines=1
             )
             with gr.Row():
-                # V16.5: Hyper Speed
                 model_drop = gr.Dropdown(["Hyper-Whisper V3 (GPU)"], value="Hyper-Whisper V3 (GPU)", interactive=False, show_label=False, container=False, scale=1)
                 subs_check = gr.Checkbox(label="Legendas", value=True, container=False, scale=0)
                 btn_run = gr.Button("BAIXAR & CORTAR", variant="primary", scale=1)
 
-        # Hidden/Advanced (Cobalt hides complexity)
+        # Status Display
+        status_info = gr.Markdown("**Status: ⚪ Inicializando...**")
+
         with gr.Accordion("⚙️ Configurações Avançadas / Autenticação", open=False):
-             gr.Markdown("### 🔐 Credenciais (Anti-Bot)")
+             gr.Markdown("### 🔐 Credenciais & Controle")
              cookies_input = gr.File(label="Cookies (cookies.txt)", file_types=[".txt"])
              oauth_input = gr.File(label="Client Secret (json)", file_types=[".json"])
-             btn_reset = gr.Button("🗑️ Limpar Cache", variant="secondary", size="sm")
+
+             # The Requested "Kill All" Button
+             btn_reset = gr.Button("🗑️ EXCLUIR TUDO (CACHE, PROCESSOS, ARQUIVOS)", variant="stop", size="sm")
              reset_msg = gr.Textbox(interactive=False, show_label=False)
 
-    # Clean Output Area
     with gr.Row():
-        logs = gr.TextArea(label="Terminal Cobalt", lines=8, interactive=False, show_copy_button=True)
+        logs = gr.TextArea(label="Terminal Cobalt (Histórico Persistente)", lines=12, interactive=False, show_copy_button=True)
 
     gr.Markdown("---")
     gr.Markdown("## 📂 Galeria")
     gallery = gr.Gallery(label="", columns=[4], rows=[2], object_fit="cover", height="auto", show_share_button=True)
 
-    # Refresh gallery on load
-    demo.load(scan_gallery, outputs=gallery)
+    # Poll system state every 1 second - This enables PERSISTENCE on reload
+    demo.load(poll_system, inputs=None, outputs=[logs, gallery, status_info], every=1)
 
     # Actions
-    btn_run.click(start_processing, inputs=[url_input, model_drop, subs_check, cookies_input, oauth_input], outputs=[logs, gallery])
-    btn_reset.click(delete_all, outputs=[reset_msg, gallery])
+    btn_run.click(
+        start_processing,
+        inputs=[url_input, model_drop, subs_check, cookies_input, oauth_input],
+        outputs=[reset_msg] # Output to small msg box, monitoring happens via poll
+    )
+
+    btn_reset.click(
+        nuke_system,
+        outputs=[reset_msg, gallery, status_info]
+    )
 
 if __name__ == "__main__":
-    # SHARE=TRUE creates the public link automatically!
     demo.launch(share=True, allowed_paths=["/content/drive"])

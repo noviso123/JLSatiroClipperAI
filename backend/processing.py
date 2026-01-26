@@ -9,6 +9,8 @@ import asyncio
 import edge_tts
 from faster_whisper import WhisperModel
 
+from . import state_manager
+
 # --- Global Cache ---
 _CACHED_MODEL = None
 
@@ -253,9 +255,14 @@ def process_video(url, settings):
         yield f"❌ Erro Transcrição: {e}", 0
         return
 
-    if not full_words: yield "⚠️ Silêncio detectado.", 100; return
+    if not full_words:
+        state_manager.append_log("⚠️ Silêncio detectado.")
+        yield "⚠️ Silêncio detectado.", 100
+        return
 
     # --- SEGMENTATION LOGIC ---
+    if state_manager.check_stop_requested(): return
+
     segments = []
     current_start_word = 0
     TARGET_DURATION = 60.0 # Minimum
@@ -292,10 +299,20 @@ def process_video(url, settings):
 
     # --- PROCESSING LOOP ---
     for idx, seg in enumerate(segments):
+        if state_manager.check_stop_requested():
+            state_manager.append_log("🛑 Processamento Interrompido pelo Usuário.")
+            yield "🛑 Interrompido.", 0
+            return
+
         job_id = f"{int(time.time())}_{idx+1}"
         seg_num = idx + 1
 
-        yield f"✂️ Processando Corte {seg_num}/{total_segs}...", 40 + int(20 * (idx/total_segs))
+        msg = f"✂️ Processando Corte {seg_num}/{total_segs}..."
+        pct = 40 + int(20 * (idx/total_segs))
+
+        state_manager.append_log(msg)
+        state_manager.update_state("progress", pct)
+        yield msg, pct
 
         start_t = seg['start']
         dur = seg['end'] - start_t
@@ -436,4 +453,6 @@ def process_video(url, settings):
         else:
             yield f"⚠️ Erro ao gerar corte {seg_num} (Arquivo Vazio/Falha FFmpeg).", 0
 
+    state_manager.append_log("✅ Processamento de Lote Completado!")
+    state_manager.update_state("progress", 100)
     yield "✅ Processamento de Lote Completado!", 100
