@@ -172,23 +172,19 @@ def process_video(url, settings):
         'overwrites': True,
         'nocheckcertificate': True,
         'source_address': '0.0.0.0', # Force IPv4 (Fixes many Colab blocks)
+        # STEALTH MODE: Impersonate Android Client to bypass 'Sign in' (No Cookies Needed)
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web_embedded']
+            }
+        }
     }
 
-    # Inject Cookies if provided in settings
-    if 'cookies_path' in settings and settings['cookies_path']:
-        ydl_opts['cookiefile'] = settings['cookies_path']
-        yield "🍪 Cookies Detectados! Usando autenticação...", 5
-    else:
-        # User Agent Spoofing as fallback
-        ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-
+    # Try Download with Stealth Mode
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
     except Exception as e:
-        if "Sign in" in str(e):
-            yield "❌ BLOQUEIO DO YOUTUBE DETECTADO!\n⚠️ Você PRECISA fazer upload do arquivo 'cookies.txt' na aba 'Desbloqueio'.", 0
-        else:
-            yield f"❌ Erro Download: {e}", 0
+        yield f"❌ Erro Download (Stealth Mode): {e}", 0
         return
 
     # Sync Input to Drive
