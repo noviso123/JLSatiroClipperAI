@@ -8,122 +8,39 @@ import time
 import shutil
 import asyncio
 import edge_tts
-from vosk import Model, KaldiRecognizer
-from PIL import Image, ImageDraw, ImageFont
+import whisper
 
 # --- Global Cache ---
 _CACHED_MODEL = None
 
-def get_cached_model(model_path):
+def get_cached_model():
     global _CACHED_MODEL
     if _CACHED_MODEL is None:
-        print(f"🔄 Carregando Modelo para RAM (Apenas uma vez)...")
-        _CACHED_MODEL = Model(model_path)
+        print(f"🔄 Carregando Modelo WHISPER (Medium) na GPU...")
+        # Use 'medium' for great balance, or 'large-v3' if explicitly requested
+        _CACHED_MODEL = whisper.load_model("medium")
     return _CACHED_MODEL
 
-# --- Helpers ---
-def seconds_to_ass_time(seconds):
-    hours = int(seconds / 3600)
-    minutes = int((seconds % 3600) / 60)
-    secs = int(seconds % 60)
-    centis = int((seconds * 100) % 100)
-    return f"{hours}:{minutes:02}:{secs:02}.{centis:02}"
+def get_transcription(audio_path, dummy_path=None):
+    """
+    Transcribes audio using OpenAI Whisper.
+    Returns list of dicts: {'word': str, 'start': float, 'end': float, 'conf': float}
+    """
+    model = get_cached_model()
 
-def generate_karaoke_ass(words):
-    header = """[Script Info]
-ScriptType: v4.00+
-PlayResX: 1080
-PlayResY: 1920
+    # Transcribe with word timestamps (Crucial for karaoke)
+    print(f"🎤 Ouvindo áudio... {os.path.basename(audio_path)}")
+    result = model.transcribe(audio_path, language="pt", word_timestamps=True)
 
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Viral,Arial,80,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,1,3,0,2,10,10,250,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
-    events = ""
-    chunk = []
-    chunk_start = 0
-    for i, word in enumerate(words):
-        w_start = word['start']
-        w_end = word['end']
-        if not chunk: chunk_start = w_start
-        chunk.append(word)
-        current_duration = w_end - chunk_start
-        if len(chunk) >= 3 or current_duration > 1.5:
-            c_text = " ".join([w['word'] for w in chunk]).upper()
-            c_end = chunk[-1]['end']
-            events += f"Dialogue: 0,{seconds_to_ass_time(chunk_start)},{seconds_to_ass_time(c_end)},Viral,,0,0,0,,{c_text}\n"
-            chunk = []
-    if chunk:
-        c_text = " ".join([w['word'] for w in chunk]).upper()
-        c_end = chunk[-1]['end']
-        events += f"Dialogue: 0,{seconds_to_ass_time(chunk_start)},{seconds_to_ass_time(c_end)},Viral,,0,0,0,,{c_text}\n"
-    return header + events
-
-# --- Narrator ---
-async def generate_narrator_audio(text, output_file):
-    voice = "pt-BR-AntonioNeural"
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_file)
-
-def create_narrator_hook(hook_video, output_hook, phrase, job_id):
-    narrator_audio = f"narrator_{job_id}.mp3"
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(generate_narrator_audio(phrase, narrator_audio))
-
-    cmd = [
-        'ffmpeg', '-i', hook_video, '-i', narrator_audio,
-        '-filter_complex', '[0:a]volume=0.1[original];[1:a]volume=2.0[narrator];[original][narrator]amix=inputs=2:duration=first[a_out]',
-        '-map', '0:v', '-map', '[a_out]',
-        '-c:v', 'copy', '-c:a', 'aac',
-        output_hook, '-y'
-    ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    if os.path.exists(narrator_audio): os.remove(narrator_audio)
-    if os.path.exists(output_hook): return output_hook
-    return hook_video
-
-def generate_thumbnail(video_path, output_path, unique_id, text="VIRAL CLIP"):
-    try:
-        frame_jpg = output_path.replace(".mp4", ".jpg")
-        subprocess.run(['ffmpeg', '-ss', '2', '-i', video_path, '-frames:v', '1', '-q:v', '2', frame_jpg, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        if not os.path.exists(frame_jpg): return None
-        img = Image.open(frame_jpg)
-        draw = ImageDraw.Draw(img)
-        font = None
-        font_paths = ["arial.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"]
-        for path in font_paths:
-            try: font = ImageFont.truetype(path, 100); break
-            except: continue
-        if not font: font = ImageFont.load_default()
-        W, H = img.size; w_text, h_text = 600, 150; x, y = (W - w_text)/2, (H - h_text)/2
-        draw.text((x, y), text, fill="yellow", stroke_width=3, stroke_fill="black", font=font)
-
-        img.save(frame_jpg)
-        subprocess.run(['ffmpeg', '-loop', '1', '-i', frame_jpg, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-c:v', 'libx264', '-t', '0.1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', output_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return output_path
-    except: return None
-
-def get_transcription(audio_path, model_path):
-    model = get_cached_model(model_path)
-    # VOSK LARGE MODEL - 1.5GB RAM usage expected
-    wf = wave.open(audio_path, "rb")
-    rec = KaldiRecognizer(model, wf.getframerate())
-    rec.SetWords(True)
     all_words = []
-    while True:
-        data = wf.readframes(4000)
-        if len(data) == 0: break
-        if rec.AcceptWaveform(data):
-            part = json.loads(rec.Result())
-            if 'result' in part: all_words.extend(part['result'])
-    final_res = json.loads(rec.FinalResult())
-    if 'result' in final_res: all_words.extend(final_res['result'])
-    wf.close()
+    for segment in result["segments"]:
+        for word in segment["words"]:
+            all_words.append({
+                "word": word["word"],
+                "start": word["start"],
+                "end": word["end"]
+            })
+
     return all_words
 
 def cleanup_temps(folder, job_id):
@@ -262,11 +179,15 @@ def process_video(url, settings):
     subprocess.run(['ffmpeg', '-threads', '16', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # 3. Discovery Transcription
-    yield "🧠 Mapeando Conteúdo (Big Brain Vosk)...", 30
-    model_path = "model"
-    if not os.path.exists(model_path): yield "❌ Modelo não encontrado!", 0; return
+    yield "🧠 Mapeando Conteúdo (Whisper AI Medium)...", 30
+    # Whisper loads from cache, no path needed
 
-    full_words = get_transcription(audio_path, model_path)
+    try:
+        full_words = get_transcription(audio_path)
+    except Exception as e:
+        yield f"❌ Erro Transcrição: {e}", 0
+        return
+
     if not full_words: yield "⚠️ Silêncio detectado.", 100; return
 
     # --- SEGMENTATION LOGIC ---
@@ -348,7 +269,7 @@ def process_video(url, settings):
 
         # 5. Production Transcription
         try:
-            clip_words = get_transcription(raw_cut_audio, model_path)
+            clip_words = get_transcription(raw_cut_audio)
         except:
              yield f"⚠️ Erro Transcrição {seg_num}. Pulando.", 0; continue
 
