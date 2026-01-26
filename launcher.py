@@ -2,7 +2,7 @@ import os
 import subprocess
 
 def main():
-    print("🚀 [Launcher] Iniciando Interface GRADIO V8.0 (STEALTH)...")
+    print("🚀 [Launcher] Iniciando Interface GRADIO V9.0 (PYTUBEFIX)...")
     print("🔄 Verificando Atualizações...")
     try: subprocess.run("git pull origin main", shell=True)
     except: pass

@@ -1,4 +1,4 @@
-yt-dlp>=2023.11.16
+pytubefix
 ffmpeg-python
 vosk
 moviepy
