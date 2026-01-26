@@ -1,4 +1,4 @@
-yt-dlp
+yt-dlp>=2023.11.16
 ffmpeg-python
 vosk
 moviepy
@@ -7,4 +7,4 @@ pillow
 requests
 edge-tts
 gradio
-pyngrok
+opencv-python-headless
