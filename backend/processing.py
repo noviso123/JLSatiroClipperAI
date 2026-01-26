@@ -162,7 +162,14 @@ def process_video(url, settings):
 
     # 1. Download
     yield "⬇️ Baixando vídeo (SSD Local)...", 5
-    ydl_opts = {'format': 'best[ext=mp4]', 'outtmpl': video_path, 'quiet': True, 'no_warnings': True}
+    # Relaxed format: prefer mp4 but take best if needed to avoid empty file
+    ydl_opts = {
+        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'outtmpl': video_path,
+        'quiet': True,
+        'no_warnings': True,
+        'overwrites': True
+    }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
