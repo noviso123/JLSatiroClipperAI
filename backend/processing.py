@@ -10,6 +10,16 @@ import edge_tts
 from vosk import Model, KaldiRecognizer
 from PIL import Image, ImageDraw, ImageFont
 
+# --- Global Cache ---
+_CACHED_MODEL = None
+
+def get_cached_model(model_path):
+    global _CACHED_MODEL
+    if _CACHED_MODEL is None:
+        print(f"🔄 Carregando Modelo para RAM (Apenas uma vez)...")
+        _CACHED_MODEL = Model(model_path)
+    return _CACHED_MODEL
+
 # --- Helpers ---
 
 def seconds_to_ass_time(seconds):
@@ -20,7 +30,6 @@ def seconds_to_ass_time(seconds):
     return f"{hours}:{minutes:02}:{secs:02}.{centis:02}"
 
 def generate_karaoke_ass(words):
-    # Note: No start_offset needed anymore because words are relative to the clip start!
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
@@ -98,8 +107,8 @@ def generate_thumbnail(video_path, output_path, text="VIRAL CLIP"):
     except: return None
 
 def get_transcription(audio_path, model_path):
-    """Reusable transcription function"""
-    model = Model(model_path)
+    """Reusable transcription function with Caching"""
+    model = get_cached_model(model_path) # USE CACHE
     wf = wave.open(audio_path, "rb")
     rec = KaldiRecognizer(model, wf.getframerate())
     rec.SetWords(True)
@@ -114,6 +123,13 @@ def get_transcription(audio_path, model_path):
     if 'result' in final_res: all_words.extend(final_res['result'])
     wf.close()
     return all_words
+
+def cleanup_temps(folder):
+    """Deletes large intermediate files"""
+    temps = ["input_video.mp4", "input_audio.wav", "raw_cut.mp4", "raw_cut.wav", "hook_raw.mp4", "hook.mp4", "main_clip.mp4", "thumb.mp4", "thumb.jpg", "list.txt", "narrator.mp3"]
+    for f in temps:
+        p = os.path.join(folder, f)
+        if os.path.exists(p): os.remove(p)
 
 def process_video(url, settings):
     settings['lang'] = 'Português (BR)'
@@ -132,7 +148,7 @@ def process_video(url, settings):
 
     # 2. Extract Full Audio (for Discovery)
     yield "🔊 Lendo Áudio Original...", 20
-    subprocess.run(['ffmpeg', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(['ffmpeg', '-threads', '4', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # 3. Discovery Transcription (Find Cut Points)
     yield "🧠 Analisando Corte (Scan Rápido)...", 40
@@ -150,53 +166,41 @@ def process_video(url, settings):
         if word['end'] > TARGET_MIN: cut_end = word['end']; break
 
     # 4. RENDER RAW CUT (Video + Audio)
-    # This is crucial for sync. We create the physical file now.
     yield "✂️ Cortando Clipe Bruto...", 50
     raw_cut_path = f"{output_dir}/raw_cut.mp4"
     raw_cut_audio = f"{output_dir}/raw_cut.wav"
 
     subprocess.run([
-        'ffmpeg', '-ss', str(start_time), '-t', str(cut_end - start_time),
+        'ffmpeg', '-threads', '4', '-ss', str(start_time), '-t', str(cut_end - start_time),
         '-i', video_path,
-        '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', # Re-encode to fix keyframes
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
         raw_cut_path, '-y'
     ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
-    # Extract audio from the CUT
     subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # 5. PRODUCTION TRANSCRIPTION (Double Pass)
     yield "🎙️ Sincronizando Legendas (Passo 2)...", 60
-    clip_words = get_transcription(raw_cut_audio, model_path)
+    clip_words = get_transcription(raw_cut_audio, model_path) # Uses cached model
 
-    # Generate ASS (Now timestamps are perfect relative to 0.0)
     ass_path = f"{output_dir}/subs.ass"
-    ass_content = generate_karaoke_ass(clip_words) # No offset needed
+    ass_content = generate_karaoke_ass(clip_words)
     with open(ass_path, "w", encoding="utf-8") as f: f.write(ass_content)
 
     # 6. Burn Subtitles
     yield "🔥 Queimando Legendas...", 70
     subtitled_cut = f"{output_dir}/main_clip.mp4"
     vf = f"ass={ass_path}"
-    subprocess.run(['ffmpeg', '-i', raw_cut_path, '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', subtitled_cut, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    subprocess.run(['ffmpeg', '-threads', '4', '-i', raw_cut_path, '-vf', vf, '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'copy', subtitled_cut, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
     # 7. Hook & Narrator
     yield "🗣️ Criando Hook com Narrador...", 85
     raw_hook = f"{output_dir}/hook_raw.mp4"
-    # Take 3s from 20% mark
     hook_start = (cut_end - start_time) * 0.2
-    # NOTE: We extract hook from MAIN CLIP (subtitled) or RAW?
-    # User usually wants subtitles on hook too.
-    # Let's extract from subtitled main clip for consistency.
-
-    # Be careful: hook_start is relative to the clip duration now.
-    # The clip duration is ~60s. So hooks starts around 12s.
     subprocess.run(['ffmpeg', '-ss', str(hook_start), '-t', '3', '-i', subtitled_cut, '-c', 'copy', raw_hook, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    phrases = ["Olha só o que aconteceu!", "Você não vai acreditar!", "Assista até o final!", "Isso é incrível!", "Segredo revelado!"]
-    phrase = random.choice(phrases)
     final_hook = f"{output_dir}/hook.mp4"
-    create_narrator_hook(raw_hook, final_hook, phrase)
+    phrases = ["Olha só o que aconteceu!", "Você não vai acreditar!", "Assista até o final!", "Isso é incrível!", "Segredo revelado!"]
+    create_narrator_hook(raw_hook, final_hook, random.choice(phrases))
 
     thumb_out = f"{output_dir}/thumb.mp4"
     generate_thumbnail(video_path, thumb_out)
@@ -212,6 +216,8 @@ def process_video(url, settings):
     subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     if os.path.exists(final_out):
+        yield "🧹 Limpando Arquivos Temporários...", 98
+        cleanup_temps(output_dir)
         yield "✅ Concluído!", 100
         return final_out
     else: yield "❌ Erro.", 0; return None
