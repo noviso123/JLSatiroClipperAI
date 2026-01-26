@@ -124,4 +124,3 @@ with gr.Blocks(title="JLSatiro AI Studio V7.2", theme=gr.themes.Soft()) as demo:
 if __name__ == "__main__":
     # SHARE=TRUE creates the public link automatically!
     demo.launch(share=True, allowed_paths=["/content/drive"])
-```
