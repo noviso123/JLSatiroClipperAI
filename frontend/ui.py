@@ -49,8 +49,8 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
     progress(0, desc="Iniciando...")
     log_history = "💎 Iniciando Motor Cobalt V13.3...\n"
 
-    # V12.4 FIX: Use gr.Skip() to avoid touching the Gallery (blocked by Drive IO)
-    yield log_history, gr.Skip()
+    # V12.4 FIX: Use gr.skip() to avoid touching the Gallery (blocked by Drive IO)
+    yield log_history, gr.skip()
 
     try:
         for result in processing.process_video(url, settings):
@@ -61,7 +61,7 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
 
                 # Update Text Log
                 log_history = f"[{pct}%] {status}\n" + log_history
-                yield log_history, gr.Skip() # Update logs, SKIP gallery (Fastest)
+                yield log_history, gr.skip() # Update logs, SKIP gallery (Fastest)
 
             elif isinstance(result, str):
                 # Finished Clip Path - NOW we refresh gallery (Only once at end of clip)
@@ -74,7 +74,7 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file, progr
 
     except Exception as e:
         log_history = f"❌ Erro Crítico: {str(e)}\n" + log_history
-        yield log_history, gr.Skip()
+        yield log_history, gr.skip()
 
 def delete_all():
     """Factory Reset"""
