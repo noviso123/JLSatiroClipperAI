@@ -97,11 +97,11 @@ cobalt_theme = gr.themes.Ocean(
     font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui"]
 )
 
-with gr.Blocks(title="JLSatiro Cobalt V16.1 (ULTIMATE)", theme=cobalt_theme) as demo:
+with gr.Blocks(title="JLSatiro Cobalt V16.2 (GENESIS)", theme=cobalt_theme) as demo:
     with gr.Column(elem_id="main_container", variant="panel"):
         gr.Markdown(
             """
-            # 💎 JLSatiro Cobalt V16.1
+            # 💎 JLSatiro Cobalt V16.2 (Genesis)
             ### *Clean. Fast. Private. T4 GPU Ultimate.*
             """
         )

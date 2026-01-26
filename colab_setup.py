@@ -13,7 +13,7 @@ def run_command(command):
         pass
 
 def main():
-    print("💎 [Auto-Update] JLSatiro Setup V16.1 (ULTIMATE)...")
+    print("💎 [Auto-Update] JLSatiro Setup V16.2 (GENESIS)...")
 
     # 0. DRIVE DEEP INTEGRATION
     print("☁️ [0/4] Conectando Google Drive (Modo Produção)...")
@@ -42,8 +42,16 @@ def main():
         os.symlink(drive_workspace, local_downloads)
         print("✅ Ponte Criada! Arquivos serão salvos direto na Nuvem.")
     else:
-        print("⚠️ Drive não disponível. Usando armazenamento temporário.")
+        print("⚠️ Drive não disponível. Usando armazenamento temporário (Não Recomendado).")
         os.makedirs(local_downloads, exist_ok=True)
+
+    # V16.2: Ensure auth file if uploaded
+    possible_auth = "/content/drive/MyDrive/JLSatiro_AI_Studio/client_secret.json"
+    if os.path.exists(possible_auth):
+        print(f"    ✅ Credenciais encontradas no Drive! (client_secret.json)")
+    else:
+        print(f"    ℹ️ Nenhuma credencial 'client_secret.json' encontrada no Drive.")
+        print(f"       (Opcional) Suba no Passo 1.5 para liberar uploads.")
 
     # 1. System Dependencies
     print("📦 [1/4] Atualizando Motores de Sistema (FFmpeg)...")
