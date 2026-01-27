@@ -11,3 +11,8 @@ requests
 edge-tts
 gradio
 opencv-python-headless
+mediapipe
+google-auth-oauthlib
+google-api-python-client
+llama-cpp-python
+instructor
