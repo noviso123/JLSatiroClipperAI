@@ -65,8 +65,68 @@ def detect_active_speaker_x(video_path, start_t, dur):
         print(f"⚠️ Erro Smart Crop: {e}")
 
     return 0.5
+    return 0.5
 
-def generate_thumbnail(video_path, output_path, job_id, text="VIRAL"):
+def scan_face_positions(video_path):
+    """
+    Phase 5: Global Face Scan (Pre-Calculation)
+    Scans the entire video once and caches face positions.
+    Returns: {timestamp (int_seconds): center_x_norm (float)}
+    """
+    print("👁️ Iniciando Scan Facial Global (Smart Crop V2)...")
+    face_map = {}
+    try:
+        import cv2
+        import mediapipe as mp
+
+        mp_face = mp.solutions.face_detection
+        detector = mp_face.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
+
+        # Scan every 1 second
+        for t in range(0, int(duration), 1):
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+            ret, frame = cap.read()
+            if not ret: break
+
+            results = detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            if results.detections:
+                # Find biggest face
+                max_area = 0
+                best_center = 0.5
+                for detection in results.detections:
+                    bbox = detection.location_data.relative_bounding_box
+                    area = bbox.width * bbox.height
+                    if area > max_area:
+                        max_area = area
+                        best_center = bbox.xmin + (bbox.width / 2)
+                face_map[t] = best_center
+
+        cap.release()
+        print(f"✅ Scan Completo: {len(face_map)} pontos mapeados.")
+        return face_map
+    except Exception as e:
+        print(f"⚠️ Erro no Global Scan: {e}")
+        return {}
+
+def get_crop_from_cache(start_t, dur, face_map):
+    """
+    Retrieves average face position from cache for a specific segment.
+    """
+    if not face_map: return 0.5
+
+    relevant_centers = []
+    # Check seconds within the segment range
+    for t in range(int(start_t), int(start_t + dur)):
+        if t in face_map:
+            relevant_centers.append(face_map[t])
+
+    if relevant_centers:
+        return sum(relevant_centers) / len(relevant_centers)
+    return 0.5
     try:
         vf_text = f"drawtext=text='{text}':fontcolor=yellow:fontsize=150:x=(w-text_w)/2:y=(h-text_h)/5:borderw=8:bordercolor=black:shadowx=5:shadowy=5"
         img_tmp = output_path.replace('.mp4', '.jpg')
