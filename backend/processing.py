@@ -48,17 +48,33 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     if crop_x < 0: crop_x = 0
     if crop_x > (scaled_w - crop_w): crop_x = (scaled_w - crop_w)
 
-    filter_complex = (
-        f"[0:v]scale=-1:480,crop={crop_w}:480:{crop_x}:0,boxblur=10:5,"
-        "scale=1080:1920[bg];"
-        "[0:v]scale=1080:-1[fg];"
-        "[bg][fg]overlay=(W-w)/2:(H-h)/2"
-    )
+    if use_cuda_filters:
+        # Phase 7: GPU Filters (Hardware Accelerated)
+        # Note: crop is usually CPU, so we download, crop, upload
+        filter_complex = (
+            f"[0:v]scale_cuda=-1:480,hwdownload,format=nv12,crop={crop_w}:480:{crop_x}:0,hwupload,"
+            "scale_cuda=1080:1920[bg];"
+            "[0:v]scale_cuda=1080:-1[fg];"
+            "[bg][fg]overlay_cuda=(W-w)/2:(H-h)/2,hwdownload,format=yuv420p"
+        )
+    else:
+        # Fallback CPU Filters
+        filter_complex = (
+            f"[0:v]scale=-1:480,crop={crop_w}:480:{crop_x}:0,boxblur=10:5,"
+            "scale=1080:1920[bg];"
+            "[0:v]scale=1080:-1[fg];"
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2"
+        )
 
     use_nvenc = False
+    use_cuda_filters = False
     try:
         res = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True)
         if 'h264_nvenc' in res.stdout: use_nvenc = True
+
+        res_flt = subprocess.run(['ffmpeg', '-filters'], capture_output=True, text=True)
+        if 'scale_cuda' in res_flt.stdout and 'overlay_cuda' in res_flt.stdout:
+            use_cuda_filters = True
     except: pass
 
     ffmpeg_cmd = ['ffmpeg', '-y', '-max_muxing_queue_size', '9999', '-fflags', '+genpts+igndts', '-avoid_negative_ts', 'make_zero']

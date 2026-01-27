@@ -71,3 +71,75 @@ def get_transcription(audio_path):
             })
 
     return all_words
+
+def analyze_energy_segmentation(audio_path, full_words, target_duration=60):
+    """
+    Phase 6: Advanced Energy-Based Segmentation (Librosa).
+    """
+    try:
+        import librosa
+        import numpy as np
+
+        print("⚡ Analisando Energia do Áudio (Librosa)...")
+        y, sr = librosa.load(audio_path, sr=16000)
+        rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
+        times = librosa.frames_to_time(range(len(rms)), sr=sr, hop_length=512)
+
+        segments = []
+        current_start = 0
+
+        while current_start < len(full_words):
+            start_time = full_words[current_start]['start']
+            target_end = start_time + target_duration
+
+            best_score = -1
+            best_idx = -1
+
+            # Scan candidates around target duration (+- 10s)
+            for i in range(current_start, len(full_words)):
+                w = full_words[i]
+                if w['end'] > (target_end + 15): break # Optimization: limit scan
+                if w['end'] < (target_end - 15): continue
+
+                # Metrics
+                dist_penalty = abs(w['end'] - target_end) / 15.0 # 0.0 to 1.0 (lower is better)
+
+                # Pause Score
+                pause_dur = 0
+                if i+1 < len(full_words):
+                    pause_dur = full_words[i+1]['start'] - w['end']
+                pause_score = min(pause_dur / 1.0, 1.0) # 1.0 = 1s pause (good)
+
+                # Energy Score
+                time_idx = np.searchsorted(times, w['end'])
+                energy_score = 1.0
+                if time_idx < len(rms):
+                    # Invert energy: we want LOW energy cuts
+                    norm_energy = rms[time_idx] / (np.max(rms) + 1e-6)
+                    energy_score = 1.0 - norm_energy
+
+                # Final Score (Weighted)
+                # We want: Close to target time, High Pause, Low Energy
+                score = (0.3 * (1 - dist_penalty)) + (0.4 * pause_score) + (0.3 * energy_score)
+
+                if score > best_score:
+                    best_score = score
+                    best_idx = i
+
+            if best_idx != -1:
+                segments.append({'start': start_time, 'end': full_words[best_idx]['end']})
+                current_start = best_idx + 1
+            else:
+                # Fallback: Just cut at target
+                segments.append({'start': start_time, 'end': min(target_end, full_words[-1]['end'])})
+                # Advance approximate words based on 150wpm (2.5 wps)
+                approx_words = int(60 * 2.5)
+                current_start += approx_words
+                if current_start >= len(full_words): break
+
+        print(f"⚡ Segmentação por Energia: {len(segments)} cortes refinados.")
+        return segments
+
+    except Exception as e:
+        print(f"⚠️ Erro Librosa (Fallback Simples): {e}")
+        return None
