@@ -189,7 +189,7 @@ with gr.Blocks(title="JLSatiro Clipper AI - V17.0 (EXTREME AGENT)", theme=cobalt
     # Actions
     btn_run.click(
         start_processing,
-        inputs=[url_input, file_input, model_drop, subs_check, youtube_check, cookies_input, oauth_input],
+        inputs=[url_input, file_input, model_drop, subs_check, youtube_check, hashtags_input, cookies_input, oauth_input],
         outputs=[reset_msg] # Output to small msg box, monitoring happens via poll
     )
 
