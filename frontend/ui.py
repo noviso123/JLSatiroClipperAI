@@ -183,12 +183,13 @@ with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobal
 
     # Poll system state every 1 second - This enables PERSISTENCE on reload
 
-    # Initial Load
-    demo.load(poll_system, inputs=None, outputs=[logs, gallery, status_info])
-
-    # Polling with Timer (Modern Gradio approach)
-    timer = gr.Timer(1)
-    timer.tick(poll_system, inputs=None, outputs=[logs, gallery, status_info])
+    # Polling logic compatible with both new (Titanium) and old (Vault) environments
+    if hasattr(gr, "Timer"):
+        timer = gr.Timer(1)
+        timer.tick(poll_system, inputs=None, outputs=[logs, gallery, status_info])
+    else:
+        # Legacy fallback for Gradio < 4.36 (User's cached version)
+        demo.load(poll_system, inputs=None, outputs=[logs, gallery, status_info], every=1)
 
     # Actions
     btn_run.click(
