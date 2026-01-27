@@ -67,7 +67,20 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     ffmpeg_cmd.extend(['-filter_complex', filter_complex, '-r', '30', '-vsync', 'cfr'])
 
     if use_nvenc:
-        ffmpeg_cmd.extend(['-c:v', 'h264_nvenc', '-preset', 'p2', '-rc', 'constqp', '-qp', '26', '-b:v', '0'])
+        ffmpeg_cmd.extend([
+            '-c:v', 'h264_nvenc',
+            '-preset', 'p4',           # Medium (Balance Speed/Quality)
+            '-tune', 'hq',
+            '-profile:v', 'high',
+            '-rc', 'vbr',              # Variable bitrate
+            '-cq', '20',               # Quality 20 (High)
+            '-b:v', '5M',
+            '-maxrate', '8M',
+            '-bufsize', '10M',
+            '-spatial-aq', '1',
+            '-temporal-aq', '1',
+            '-rc-lookahead', '20'
+        ])
     else:
         ffmpeg_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast'])
 
@@ -94,7 +107,11 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     vf = f"ass={ass_path.replace(os.sep, '/')}"
 
     burn_cmd = ['ffmpeg', '-threads', '0', '-i', raw_cut_path, '-vf', vf, '-r', '30']
-    if use_nvenc: burn_cmd.extend(['-c:v', 'h264_nvenc', '-preset', 'p2', '-rc', 'constqp', '-qp', '26', '-b:v', '0'])
+    if use_nvenc:
+        burn_cmd.extend([
+            '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', '20',
+            '-b:v', '5M', '-maxrate', '8M', '-bufsize', '10M'
+        ])
     else: burn_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast'])
     burn_cmd.extend(['-c:a', 'copy', subtitled_cut, '-y'])
     subprocess.run(burn_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -195,7 +212,21 @@ def process_video(url, video_file, settings):
     yield f"📐 {len(segments)} Cortes Planejados.", 35
 
     # --- PARALLEL EXECUTION ---
+    # DYNAMIC WORKERS: Calculate based on VRAM (Limit: 2GB per worker approx)
     max_workers = 2
+    try:
+        import torch
+        if torch.cuda.is_available():
+            vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            # Reserve 4GB for System/Whisper/LLM, use rest for workers (approx 1.5GB each for 1080p NVENC)
+            # T4 (15GB) -> ~11GB Free -> ~6 Workers. Conservative: (VRAM - 4) / 1.5
+            calc_workers = int((vram_gb - 4) / 1.5)
+            max_workers = min(max(calc_workers, 2), 6) # Cap at 6 for stability
+            print(f"🚀 Workers Dinâmicos: {max_workers} (VRAM: {vram_gb:.1f}GB)")
+    except Exception as e:
+        print(f"⚠️ Erro ao calcular workers dinâmicos: {e}")
+        max_workers = 3 # Safe fallback
+
     state_manager.append_log(f"🚀 Iniciando Workers ({max_workers})...")
 
     seg_payloads = [(i, seg, len(segments)) for i, seg in enumerate(segments)]

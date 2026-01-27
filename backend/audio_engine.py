@@ -10,7 +10,8 @@ def get_cached_model():
         print(f"⚡ Carregando Modelo HYPER-SPEED (Faster-Whisper Large-V3)...")
         try:
             # float16 is native for T4. device='cuda' is mandatory.
-            _CACHED_MODEL = WhisperModel("large-v3", device="cuda", compute_type="float16")
+            # OPTIMIZATION: int8_float16 uses Tensor Cores for 2-3x speedup on T4
+            _CACHED_MODEL = WhisperModel("large-v3", device="cuda", compute_type="int8_float16")
         except Exception as e:
             print(f"⚠️ GPU Falhou. Usando CPU (int8)... Erro: {e}")
             _CACHED_MODEL = WhisperModel("small", device="cpu", compute_type="int8")
