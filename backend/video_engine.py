@@ -116,7 +116,7 @@ def download_authenticated_ytdlp(url, output_path, cookies_path=None):
     import yt_dlp
     print("💎 Trying Cobalt Engine (Yt-Dlp)...")
     ydl_opts = {
-        'format': 'bestvideo+bestaudio/best', # Relaxed format
+        'format': 'best', # Nuclear Option for compatibility
         'outtmpl': output_path,
         'merge_output_format': 'mp4',
         'quiet': True, 'no_warnings': True, 'overwrites': True, 'nocheckcertificate': True,
