@@ -24,7 +24,9 @@ def init_google_services():
 init_google_services()
 
 def process_single_segment(seg_data, video_path, work_dir, drive_dir):
-    idx, seg, total_segs = seg_data
+    if len(seg_data) == 4: idx, seg, total_segs, face_map = seg_data
+    else: idx, seg, total_segs = seg_data; face_map = {}
+
     seg_num = idx + 1
     job_id = f"{int(time.time())}_{idx+1}"
 
@@ -37,8 +39,8 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     raw_cut_path = os.path.join(work_dir, f"raw_cut_{job_id}.mp4")
     raw_cut_audio = os.path.join(work_dir, f"raw_cut_{job_id}.wav")
 
-    # Smart Crop Coords
-    speaker_x_norm = video_engine.detect_active_speaker_x(video_path, start_t, dur)
+    # Smart Crop Coords (Batch Cache)
+    speaker_x_norm = video_engine.get_crop_from_cache(start_t, dur, face_map)
     scaled_w = 853
     crop_w = 270
     center_px = speaker_x_norm * scaled_w
@@ -182,6 +184,10 @@ def process_video(url, video_file, settings):
     full_words = audio_engine.get_transcription(audio_path)
     if not full_words: yield "⚠️ Silêncio.", 100; return
 
+    # BATCH SCAN (Phase 5)
+    yield "👁️ Analisando Rosto (Global Scan)...", 33
+    face_map = video_engine.scan_face_positions(video_path)
+
     # --- SEGMENTATION ---
     segments = []
     current_start_word = 0
@@ -229,7 +235,7 @@ def process_video(url, video_file, settings):
 
     state_manager.append_log(f"🚀 Iniciando Workers ({max_workers})...")
 
-    seg_payloads = [(i, seg, len(segments)) for i, seg in enumerate(segments)]
+    seg_payloads = [(i, seg, len(segments), face_map) for i, seg in enumerate(segments)]
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Pass static checks to avoid pickling issues
