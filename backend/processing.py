@@ -166,11 +166,7 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
 def process_video(url, video_file, settings):
     settings['lang'] = 'Português (BR)'
 
-    try:
-    try:
-        # Optimization: Setup is now done in Installation Phase (Step 2)
-        pass
-    except: pass
+    # Optimization: Setup is now done in Installation Phase (Step 2)
 
     work_dir, drive_dir = video_engine.setup_directories()
 
