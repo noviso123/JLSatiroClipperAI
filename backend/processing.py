@@ -563,33 +563,57 @@ def process_video(url, video_file, settings):
             if 'publish_youtube' in settings and settings['publish_youtube'] and GLOBAL_GOOGLE_SERVICES:
                 yield f"📺 Publicando no YouTube...", 99
 
-                # --- STRUCTURED METADATA ENGINE V19.0 ---
+                # --- HYBRID INTELLIGENCE (NEURAL V20.0 -> STRUCTURED V19.0) ---
+                meta_result = None
+
+                # 1. Try Neural Engine (GPU/Colab)
                 try:
-                    from .metadata_engine import MetadataEngine
-                    engine = MetadataEngine()
+                    from .neural_engine import NeuralEngine
+                    neural = NeuralEngine() # Will fail safely if model not found
+                    if neural.client:
+                         yield "🧠 Pensando (Neural Engine V20)...", 99
+                         # Prepare Clean Text
+                         full_text = " ".join([w['word'] for w in clip_words])
+                         user_tags = settings.get('hashtags', '')
 
-                    user_hashtags = settings.get('hashtags', '')
-                    meta = engine.generate(clip_words, user_hashtags)
+                         meta_data = neural.generate(full_text, user_tags)
+                         if meta_data:
+                             # Map to Metadata Object format expected by loop
+                             from dataclasses import make_dataclass
+                             MetaObj = make_dataclass("MetaObj", [("title", str), ("description", str), ("tags", list), ("privacy", str), ("pinned_comment", str)])
+                             meta_result = MetaObj(**meta_data)
+                             state_manager.append_log("✅ Metadados Gerados via IA Neural!")
+                except Exception as e:
+                    print(f"⚠️ Neural Engine bypass: {e}")
 
+                # 2. Fallback to Structured Engine (V19.0 - CPU/NLP)
+                if not meta_result:
+                    state_manager.append_log("⚠️ Usando Motor NLP V19.0 (CPU)...")
+                    try:
+                        from .metadata_engine import MetadataEngine
+                        engine = MetadataEngine()
+                        user_hashtags = settings.get('hashtags', '')
+                        meta_result = engine.generate(clip_words, user_hashtags)
+                    except Exception as e:
+                        print(f"❌ Erro Crítico Metadata: {e}")
+
+                if meta_result:
                     yt_id = GLOBAL_GOOGLE_SERVICES.upload_to_youtube(
                         final_out_local,
-                        title=meta.title,
-                        description=meta.description,
-                        tags=meta.tags,
-                        privacy=meta.privacy
+                        title=meta_result.title,
+                        description=meta_result.description,
+                        tags=meta_result.tags,
+                        privacy=meta_result.privacy
                     )
 
                     if yt_id:
                         msg_yt = f"✅ Publicado no YouTube! https://youtu.be/{yt_id}"
                         state_manager.append_log(msg_yt)
 
-                        if meta.pinned_comment:
-                            GLOBAL_GOOGLE_SERVICES.post_comment(yt_id, meta.pinned_comment)
+                        if meta_result.pinned_comment:
+                            GLOBAL_GOOGLE_SERVICES.post_comment(yt_id, meta_result.pinned_comment)
 
                         yield msg_yt, 100
-                except Exception as e:
-                    print(f"⚠️ Erro no Metadata Engine: {e}")
-                    yield f"⚠️ Erro Metadata: {e}", 100
 
             cleanup_temps(work_dir, job_id)
             if GLOBAL_GOOGLE_SERVICES: yield f"✅ Processo Finalizado (Nuvem).", 100
