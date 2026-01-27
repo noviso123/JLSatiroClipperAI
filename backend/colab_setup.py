@@ -46,4 +46,9 @@ def setup_neural_env():
         return True
     else:
         print("❌ Falha ao baixar modelo.")
+    else:
+        print("❌ Falha ao baixar modelo.")
         return False
+
+if __name__ == "__main__":
+    setup_neural_env()

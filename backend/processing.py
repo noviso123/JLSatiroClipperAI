@@ -167,8 +167,9 @@ def process_video(url, video_file, settings):
     settings['lang'] = 'Português (BR)'
 
     try:
-        from . import colab_setup
-        colab_setup.setup_neural_env()
+    try:
+        # Optimization: Setup is now done in Installation Phase (Step 2)
+        pass
     except: pass
 
     work_dir, drive_dir = video_engine.setup_directories()
