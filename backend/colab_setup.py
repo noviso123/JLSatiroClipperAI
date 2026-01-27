@@ -24,6 +24,23 @@ def setup_neural_env():
 
     print("🚀 Iniciando Setup NEURAL ENGINE (V20.0)...")
 
+    # 0. Auth Check (Fix for missing file)
+    possible_paths = [
+        "/content/drive/MyDrive/JLSatiro_AI_Studio/client_secret.json",
+        "/content/client_secret.json",
+        "../client_secret.json"
+    ]
+    if not os.path.exists("client_secret.json"):
+        for p in possible_paths:
+            if os.path.exists(p):
+                print(f"🔑 Encontrado credencial externa: {p}")
+                try:
+                    import shutil
+                    shutil.copy(p, "client_secret.json")
+                    print("    ✅ Copiado para raiz do projeto.")
+                    break
+                except: pass
+
     # 1. Install Llama-cpp (CUDA)
     try:
         import llama_cpp
