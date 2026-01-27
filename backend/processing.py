@@ -43,28 +43,12 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     speaker_x_norm = video_engine.get_crop_from_cache(start_t, dur, face_map)
     scaled_w = 853
     crop_w = 270
-    center_px = speaker_x_norm * scaled_w
-    crop_x = int(center_px - (crop_w / 2))
-    if crop_x < 0: crop_x = 0
-    if crop_x > (scaled_w - crop_w): crop_x = (scaled_w - crop_w)
 
-    if use_cuda_filters:
-        # Phase 7: GPU Filters (Hardware Accelerated)
-        # Note: crop is usually CPU, so we download, crop, upload
-        filter_complex = (
-            f"[0:v]scale_cuda=-1:480,hwdownload,format=nv12,crop={crop_w}:480:{crop_x}:0,hwupload,"
-            "scale_cuda=1080:1920[bg];"
-            "[0:v]scale_cuda=1080:-1[fg];"
-            "[bg][fg]overlay_cuda=(W-w)/2:(H-h)/2,hwdownload,format=yuv420p"
-        )
-    else:
-        # Fallback CPU Filters
-        filter_complex = (
-            f"[0:v]scale=-1:480,crop={crop_w}:480:{crop_x}:0,boxblur=10:5,"
-            "scale=1080:1920[bg];"
-            "[0:v]scale=1080:-1[fg];"
-            "[bg][fg]overlay=(W-w)/2:(H-h)/2"
-        )
+    # Calculate crop X using centralized logic
+    crop_x = video_engine.calculate_crop_x(speaker_x_norm, scaled_w, crop_w)
+
+    # Build Filter Complex (Centralized)
+    filter_complex = video_engine.build_vertical_filter_complex(crop_x, crop_w, use_cuda=use_cuda_filters)
 
     use_nvenc = False
     use_cuda_filters = False

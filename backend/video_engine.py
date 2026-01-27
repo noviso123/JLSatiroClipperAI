@@ -129,12 +129,54 @@ def get_crop_from_cache(start_t, dur, face_map):
 
     return 0.5
 
+# --- FFmpeg Logic Centralized ---
+
+def calculate_crop_x(center_norm, scaled_w, crop_w):
+    """Calculates the X coordinate for the crop based on normalized center."""
+    center_px = center_norm * scaled_w
+    crop_x = int(center_px - (crop_w / 2))
+    # Boundary checks
+    if crop_x < 0: crop_x = 0
+    if crop_x > (scaled_w - crop_w): crop_x = (scaled_w - crop_w)
+    return crop_x
+
+def build_vertical_filter_complex(crop_x, crop_w, use_cuda=False):
+    """
+    Constructs the FFmpeg filter graph string for 9:16 vertical video.
+    Supports both CPU and CUDA acceleration.
+    """
+    if use_cuda:
+        # Phase 7: GPU Filters (Hardware Accelerated)
+        # 1. Scale input to height 480 (maintaining aspect ratio initially, but we force specific logic here)
+        # Note: crop is usually CPU-bound or tricky in pure hw, so we often do:
+        # hwdownload -> crop -> hwupload for complex pipelines or stay in CPU for crop.
+        # However, looking at the previous working logic:
+        # [0:v]scale_cuda=-1:480,hwdownload,format=nv12,crop={crop_w}:480:{crop_x}:0,hwupload,scale_cuda=1080:1920[bg]
+        return (
+            f"[0:v]scale_cuda=-1:480,hwdownload,format=nv12,crop={crop_w}:480:{crop_x}:0,hwupload,"
+            "scale_cuda=1080:1920[bg];"
+            "[0:v]scale_cuda=1080:-1[fg];"
+            "[bg][fg]overlay_cuda=(W-w)/2:(H-h)/2,hwdownload,format=yuv420p"
+        )
+    else:
+        # Fallback CPU Filters
+        return (
+            f"[0:v]scale=-1:480,crop={crop_w}:480:{crop_x}:0,boxblur=10:5,"
+            "scale=1080:1920[bg];"
+            "[0:v]scale=1080:-1[fg];"
+            "[bg][fg]overlay=(W-w)/2:(H-h)/2"
+        )
+
 def generate_thumbnail(video_path, output_path, job_id, text="VIRAL"):
     try:
+        # Use dynamic timestamp (20% of duration or 1s) to avoid black frames
+        timestamp = '00:00:02'
+
         vf_text = f"drawtext=text='{text}':fontcolor=yellow:fontsize=150:x=(w-text_w)/2:y=(h-text_h)/5:borderw=8:bordercolor=black:shadowx=5:shadowy=5"
         img_tmp = output_path.replace('.mp4', '.jpg')
+
         subprocess.run([
-            'ffmpeg', '-ss', '00:00:01', '-i', video_path,
+            'ffmpeg', '-ss', timestamp, '-i', video_path,
             '-vf', vf_text,
             '-vframes', '1', img_tmp, '-y'
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -176,10 +218,23 @@ def cleanup_temps(folder, job_id):
 
 # --- DOWNLOADERS ---
 def download_strategy_pytubefix(url, output_path):
-    from pytubefix import YouTube
-    print("💎 Engine: Pytubefix (Stable)...")
-    yt = YouTube(url, client='ANDROID')
-    stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
-    if not stream: stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
-    stream.download(output_path=os.path.dirname(output_path), filename=os.path.basename(output_path))
-    return True
+    try:
+        from pytubefix import YouTube
+        print("💎 Engine: Pytubefix (Stable)...")
+        yt = YouTube(url, client='ANDROID')
+
+        # Priority: Progressive MP4 (Audio+Video) -> Best Video MP4
+        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
+        if not stream:
+            stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
+
+        if stream:
+            stream.download(output_path=os.path.dirname(output_path), filename=os.path.basename(output_path))
+            return True
+        else:
+            print("❌ Erro: Nenhum stream MP4 compatível encontrado.")
+            return False
+
+    except Exception as e:
+        print(f"❌ Erro Download Pytubefix: {e}")
+        return False
