@@ -9,7 +9,8 @@ from googleapiclient.http import MediaFileUpload
 # Scopes required for Drive and YouTube
 SCOPES = [
     'https://www.googleapis.com/auth/drive.file',
-    'https://www.googleapis.com/auth/youtube.upload'
+    'https://www.googleapis.com/auth/youtube.upload',
+    'https://www.googleapis.com/auth/youtube.force-ssl' # Required for Comments
 ]
 
 class GoogleServices:
@@ -156,6 +157,30 @@ class GoogleServices:
         except Exception as e:
              print(f"❌ Erro no Upload YouTube: {e}")
              return None
+
+    def post_comment(self, video_id, text):
+        """Posts a top-level comment on a video."""
+        if not self.youtube_service: return None
+        try:
+            print(f"💬 Postando comentário no vídeo {video_id}...")
+            self.youtube_service.commentThreads().insert(
+                part="snippet",
+                body={
+                    "snippet": {
+                        "videoId": video_id,
+                        "topLevelComment": {
+                            "snippet": {
+                                "textOriginal": text
+                            }
+                        }
+                    }
+                }
+            ).execute()
+            print("✅ Comentário Publicado!")
+            return True
+        except Exception as e:
+            print(f"❌ Erro ao postar comentário: {e}")
+            return False
 
     def _get_folder_id(self, folder_name):
         query = f"mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed=false"

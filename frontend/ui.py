@@ -55,7 +55,7 @@ def run_worker(url, video_file, settings):
         state_manager.append_log("🏁 Processamento Finalizado.")
         state_manager.set_running(False)
 
-def start_processing(url, video_file, model_type, burn_subs, publish_youtube, cookies_file, oauth_file):
+def start_processing(url, video_file, model_type, burn_subs, publish_youtube, hashtags, cookies_file, oauth_file):
     """Starts the background thread"""
     if not url and not video_file:
         return "⚠️ Erro: Forneça uma URL do YouTube OU um arquivo de vídeo."
@@ -69,6 +69,7 @@ def start_processing(url, video_file, model_type, burn_subs, publish_youtube, co
         "lang": "Português (BR)",
         "burn_subtitles": burn_subs,
         "publish_youtube": publish_youtube,
+        "hashtags": hashtags,
         "cookies_path": cookies_file.name if cookies_file else None,
         "oauth_path": oauth_file.name if oauth_file else None
     }
@@ -148,6 +149,14 @@ with gr.Blocks(title="JLSatiro Clipper AI - V17.0 (EXTREME AGENT)", theme=cobalt
                 subs_check = gr.Checkbox(label="Legendas", value=True, container=False, scale=0)
                 youtube_check = gr.Checkbox(label="Publicar YouTube (Shorts)", value=False, container=False, scale=0)
                 btn_run = gr.Button("BAIXAR/CARREGAR & CORTAR (EXTREME MODE)", variant="primary", scale=1)
+
+            with gr.Row():
+                hashtags_input = gr.Textbox(
+                    label="Hashtags Obrigatórias (Separadas por espaço)",
+                    value="#Shorts #Viral #Empreendedorismo",
+                    placeholder="#Shorts #SeuNicho ...",
+                    scale=4
+                )
 
         # Status Display
         status_info = gr.Markdown("**Status: ⚪ Pronto para Decolar**")

@@ -556,18 +556,42 @@ def process_video(url, video_file, settings):
             # B. Upload to YouTube (Auto-Publish)
             if 'publish_youtube' in settings and settings['publish_youtube'] and GLOBAL_GOOGLE_SERVICES:
                 yield f"📺 Publicando no YouTube...", 99
-                title = f"Corte Viral #{seg_num} - {job_id}"
-                desc = "Gerado automaticamente por JLSatiro Clipper AI. #shorts #viral"
+
+                # --- SMART METADATA GENERATION ---
+                # Title: [Hook/First 5 words] + [Main Hashtags]
+                # We try to get the hook text if available, or just use a generic viral title
+                video_title_base = f"Segredo Revelado! 🤯 #{random.choice(['Shorts', 'Viral', 'Fy'])}"
+
+                # Use user hashtags or defaults
+                user_tags = settings.get('hashtags', '#Shorts #Viral #Empreendedorismo')
+
+                title = f"{video_title_base} {user_tags.split(' ')[0]}" # Add first tag to title
+                if len(title) > 100: title = title[:97] + "..."
+
+                desc = (
+                    f"😱 Você não vai acreditar nesse segredo! \n\n"
+                    f"👇 Inscreva-se no canal para mais cortes de alto valor!\n"
+                    f"{user_tags}\n\n"
+                    "Disclaimer: This video is for educational purposes. All rights belong to respective owners.\n"
+                    "#shorts #motivation #business #mindset"
+                )
+
                 yt_id = GLOBAL_GOOGLE_SERVICES.upload_to_youtube(
                     final_out_local,
                     title=title,
                     description=desc,
-                    tags=["shorts", "viral", "clipper"],
+                    tags=user_tags.replace('#', '').split(' '),
                     privacy="private" # Safety first
                 )
+
                 if yt_id:
                     msg_yt = f"✅ Publicado no YouTube! https://youtu.be/{yt_id}"
                     state_manager.append_log(msg_yt)
+
+                    # POST FIRST COMMENT (Engagement)
+                    comment_text = "👇 Qual sua opinião sobre isso? Comente abaixo! \n\n✅ Inscreva-se no canal: @empreendedorismobr2026"
+                    GLOBAL_GOOGLE_SERVICES.post_comment(yt_id, comment_text)
+
                     yield msg_yt, 100
 
             cleanup_temps(work_dir, job_id)
