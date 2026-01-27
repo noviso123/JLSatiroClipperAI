@@ -111,13 +111,17 @@ def nuke_system():
         return f"Erro ao limpar: {e}", scan_gallery(), f"Erro: {e}"
 
 # --- INTERFACE (V13.3 COBALT DESIGN) ---
-cobalt_theme = gr.themes.Ocean(
-    primary_hue="indigo",
-    secondary_hue="zinc",
-    neutral_hue="slate",
-    text_size="lg",
-    font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui"]
-)
+try:
+    cobalt_theme = gr.themes.Ocean(
+        primary_hue="indigo",
+        secondary_hue="zinc",
+        neutral_hue="slate",
+        text_size="lg",
+        font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui"]
+    )
+except AttributeError:
+    print("⚠️ Tema Ocean não encontrado (Gradio antigo no Cache?). Usando Default.")
+    cobalt_theme = gr.themes.Default()
 
 with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobalt_theme) as demo:
     with gr.Column(elem_id="main_container", variant="panel"):
