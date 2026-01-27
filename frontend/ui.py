@@ -119,11 +119,11 @@ cobalt_theme = gr.themes.Ocean(
     font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui"]
 )
 
-with gr.Blocks(title="JLSatiro Clipper AI - V17.0 (EXTREME AGENT)", theme=cobalt_theme) as demo:
+with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobalt_theme) as demo:
     with gr.Column(elem_id="main_container", variant="panel"):
         gr.Markdown(
             """
-            # 🚀 JLSatiro Clipper AI - V17.0 (EXTREME AGENT)
+            # 🚀 JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)
             ### *RamDisk Engine. NVENC P2. Smart Blur. Max Performance.*
             """
         )

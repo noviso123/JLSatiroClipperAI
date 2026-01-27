@@ -3,7 +3,7 @@ import subprocess
 import sys
 
 def main():
-    print("🚀 [JLSatiro Clipper AI] Iniciando Sistema (V22.0 Modular)...")
+    print("🚀 [JLSatiro Clipper AI] Iniciando Sistema (V23.0 Titanium Final)...")
 
     # Auto-Install for Colab/User convenience (if requirements missing)
     try:

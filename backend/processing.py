@@ -245,7 +245,7 @@ def process_video(url, video_file, settings):
         print(f"⚠️ Erro ao calcular workers dinâmicos: {e}")
         max_workers = 3 # Safe fallback
 
-    state_manager.append_log(f"🚀 Iniciando Workers ({max_workers})...")
+    state_manager.append_log(f"🚀 Iniciando Workers V23.0 ({max_workers})...")
 
     seg_payloads = [(i, seg, len(segments), face_map) for i, seg in enumerate(segments)]
 

@@ -22,7 +22,7 @@ def setup_neural_env():
         print("💻 Ambiente Local Detectado. Pulando setup Neural (GPU requerida).")
         return False
 
-    print("🚀 Iniciando Setup NEURAL ENGINE (V20.0)...")
+    print("🚀 Iniciando Setup NEURAL ENGINE (V23.0 Final)...")
 
     # 0. Auth Check (Fix for missing file)
     possible_paths = [
