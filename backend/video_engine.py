@@ -65,7 +65,7 @@ def detect_active_speaker_x(video_path, start_t, dur):
         print(f"⚠️ Erro Smart Crop: {e}")
 
     return 0.5
-    return 0.5
+
 
 def scan_face_positions(video_path):
     """
@@ -126,7 +126,10 @@ def get_crop_from_cache(start_t, dur, face_map):
 
     if relevant_centers:
         return sum(relevant_centers) / len(relevant_centers)
+
     return 0.5
+
+def generate_thumbnail(video_path, output_path, job_id, text="VIRAL"):
     try:
         vf_text = f"drawtext=text='{text}':fontcolor=yellow:fontsize=150:x=(w-text_w)/2:y=(h-text_h)/5:borderw=8:bordercolor=black:shadowx=5:shadowy=5"
         img_tmp = output_path.replace('.mp4', '.jpg')
