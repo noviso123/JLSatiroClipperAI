@@ -121,7 +121,10 @@ def download_authenticated_ytdlp(url, output_path, cookies_path=None):
         'merge_output_format': 'mp4',
         'quiet': True, 'no_warnings': True, 'overwrites': True, 'nocheckcertificate': True,
         'source_address': '0.0.0.0',
-        'extractor_args': {'youtube': {'player_client': ['web', 'android', 'ios']}}
+        'extractor_args': {'youtube': {'player_client': ['web', 'android', 'ios']}},
+        # ADVANCED OPTIMIZATION: Parallel Downloads
+        'concurrent_fragment_downloads': 4,
+        'http_chunk_size': 10485760, # 10MB
     }
     if cookies_path: ydl_opts['cookiefile'] = cookies_path
     with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
