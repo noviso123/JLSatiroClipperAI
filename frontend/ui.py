@@ -171,11 +171,11 @@ with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobal
              reset_msg = gr.Textbox(interactive=False, show_label=False)
 
     with gr.Row():
-        logs = gr.TextArea(label="Terminal Cobalt (Histórico Persistente)", lines=12, interactive=False, show_copy_button=True)
+        logs = gr.TextArea(label="Terminal Cobalt (Histórico Persistente)", lines=12, interactive=False)
 
     gr.Markdown("---")
     gr.Markdown("## 📂 Galeria")
-    gallery = gr.Gallery(label="", columns=[4], rows=[2], object_fit="cover", height="auto", show_share_button=True)
+    gallery = gr.Gallery(label="", columns=[4], rows=[2], object_fit="cover", height="auto")
 
     # Poll system state every 1 second - This enables PERSISTENCE on reload
 
