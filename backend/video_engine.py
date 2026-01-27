@@ -127,8 +127,12 @@ def download_authenticated_ytdlp(url, output_path, cookies_path=None):
         'http_chunk_size': 10485760, # 10MB
     }
     if cookies_path: ydl_opts['cookiefile'] = cookies_path
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
-    return True
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
+        return True
+    except Exception as e:
+        print(f"⚠️ Yt-Dlp Falhou: {e}")
+        return False
 
 def download_strategy_pytubefix(url, output_path):
     from pytubefix import YouTube
