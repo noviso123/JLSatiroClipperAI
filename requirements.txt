@@ -15,4 +15,5 @@ mediapipe
 google-auth-oauthlib
 google-api-python-client
 llama-cpp-python
-instructor
+instructor>=0.5.0,<1.0.0
+pydantic
