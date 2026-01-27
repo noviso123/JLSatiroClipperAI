@@ -326,7 +326,7 @@ def process_video(url, video_file, settings):
 
     # 4. Extract Full Audio (for Discovery)
     yield "🔊 Lendo Áudio Original (Hi-Res)...", 25
-    subprocess.run(['ffmpeg', '-threads', '8', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(['ffmpeg', '-threads', '0', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     # 5. Discovery Transcription
     yield "🧠 Mapeando Conteúdo (Faster-Whisper)...", 30
