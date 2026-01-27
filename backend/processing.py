@@ -59,7 +59,7 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
         if 'h264_nvenc' in res.stdout: use_nvenc = True
     except: pass
 
-    ffmpeg_cmd = ['ffmpeg', '-y']
+    ffmpeg_cmd = ['ffmpeg', '-y', '-max_muxing_queue_size', '9999', '-fflags', '+genpts+igndts', '-avoid_negative_ts', 'make_zero']
     if use_nvenc:
         ffmpeg_cmd.extend(['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda', '-c:v', 'h264_cuvid'])
 
