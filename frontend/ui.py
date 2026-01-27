@@ -152,9 +152,9 @@ with gr.Blocks(title="JLSatiro Clipper AI - V17.0 (EXTREME AGENT)", theme=cobalt
 
             with gr.Row():
                 hashtags_input = gr.Textbox(
-                    label="Hashtags Obrigatórias (Separadas por espaço)",
-                    value="#Shorts #Viral #Empreendedorismo",
-                    placeholder="#Shorts #SeuNicho ...",
+                    label="Hashtags Obrigatórias (Opcional - Sistema completará se houver espaço)",
+                    value="#Shorts #Viral",
+                    placeholder="#SeuNicho #SuaMarca (Deixe vazio para automático)",
                     scale=4
                 )
 

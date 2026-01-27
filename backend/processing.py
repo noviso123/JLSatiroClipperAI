@@ -553,34 +553,116 @@ def process_video(url, video_file, settings):
             if os.path.exists(drive_dir) and drive_dir != "downloads":
                  shutil.copy(final_out_local, os.path.join(drive_dir, f"viral_clip_{seg_num}_{job_id}.mp4"))
 
-            # B. Upload to YouTube (Auto-Publish)
-            if 'publish_youtube' in settings and settings['publish_youtube'] and GLOBAL_GOOGLE_SERVICES:
-                yield f"📺 Publicando no YouTube...", 99
+                # --- SMART METADATA ENGINE V18.0 (NLP) ---
+                # 1. Extract Context from Transcription
+                # Hook text
+                try: transcript_text = " ".join([w['word'] for w in clip_words[:15]])
+                except: transcript_text = "Video Viral Incrível"
 
-                # --- SMART METADATA GENERATION ---
-                # Title: [Hook/First 5 words] + [Main Hashtags]
-                # We try to get the hook text if available, or just use a generic viral title
-                video_title_base = f"Segredo Revelado! 🤯 #{random.choice(['Shorts', 'Viral', 'Fy'])}"
+                # 2. NLP Keyword Extraction (Dynamic Tags)
+                import collections
+                full_text_lower = " ".join([w['word'] for w in clip_words]).lower()
 
-                # Use user hashtags or defaults
-                user_tags = settings.get('hashtags', '#Shorts #Viral #Empreendedorismo')
+                # Stopwords (PT-BR + Common Helpers)
+                STOPWORDS = {
+                    "de", "a", "o", "que", "e", "do", "da", "em", "um", "para", "é", "com", "não", "uma", "os", "no",
+                    "se", "na", "por", "mais", "as", "dos", "como", "mas", "foi", "ao", "ele", "das", "tem", "à", "seu",
+                    "sua", "ou", "ser", "quando", "muito", "nos", "já", "está", "eu", "também", "só", "pelo", "pela",
+                    "até", "isso", "ela", "entre", "era", "depois", "sem", "mesmo", "aos", "ter", "seus", "quem", "nas",
+                    "me", "esse", "eles", "estão", "você", "tinha", "foram", "essa", "num", "nem", "suas", "meu", "às",
+                    "minha", "têm", "numa", "pelos", "elas", "havia", "seja", "qual", "será", "nós", "tenho", "lhe",
+                    "deles", "essas", "esses", "pelas", "este", "fosse", "dele", "tu", "te", "vocês", "vos", "lhes",
+                    "meus", "minhas", "teu", "tua", "teus", "tuas", "nosso", "nossa", "nossos", "nossas", "dela",
+                    "delas", "esta", "estes", "estas", "aquele", "aquela", "aqueles", "aquelas", "isto", "aquilo",
+                    "estou", "está", "estamos", "estão", "estive", "esteve", "estivemos", "estiveram", "estava",
+                    "estávamos", "estavam", "estivera", "estivéramos", "esteja", "ejamos", "estejam", "estivesse",
+                    "estivéssemos", "estivessem", "estiver", "estivermos", "estiverem", "hei", "há", "havemos",
+                    "hão", "houve", "houvemos", "houveram", "houvera", "houvéramos", "haja", "hajamos", "hajam",
+                    "houvesse", "houvéssemos", "houvessem", "houver", "houvermos", "houverem", "houverei", "houverá",
+                    "houveremos", "houverão", "houveria", "houveríamos", "houveriam", "sou", "somos", "são", "era",
+                    "éramos", "eram", "fui", "foi", "fomos", "foram", "fora", "fôramos", "seja", "sejamos", "sejam",
+                    "fosse", "fôssemos", "fossem", "for", "formos", "forem", "serei", "será", "seremos", "serão",
+                    "seria", "seríamos", "seriam", "tenho", "tem", "temos", "tém", "tinha", "tínhamos", "tinham",
+                    "tive", "teve", "tivemos", "tiveram", "tivera", "tivéramos", "tenha", "tenhamos", "tenham",
+                    "tivesse", "tivéssemos", "tivessem", "tiver", "tivermos", "tiverem", "terei", "terá", "teremos",
+                    "terão", "teria", "teríamos", "teriam", "video", "vídeo", "falar", "falando", "então", "aí", "pra", "tá", "né"
+                }
 
-                title = f"{video_title_base} {user_tags.split(' ')[0]}" # Add first tag to title
-                if len(title) > 100: title = title[:97] + "..."
+                def extract_keywords(text, top_n=8):
+                    words = text.replace('.', '').replace(',', '').replace('!', '').replace('?', '').split()
+                    filtered = [w for w in words if w not in STOPWORDS and len(w) > 3]
+                    count = collections.Counter(filtered)
+                    return [item[0] for item in count.most_common(top_n)]
 
+                organic_keywords = extract_keywords(full_text_lower)
+                organic_tags = [f"#{w}" for w in organic_keywords]
+
+                # 3. Strategy Merge
+                # User > Organic (NLP) > Context > Viral Base
+                user_tags_str = settings.get('hashtags', '')
+                user_tags_list = [t.strip() for t in user_tags_str.split(' ') if t.strip().startswith('#')]
+
+                # Context mapping (Fallback/Augment)
+                context_map = {
+                    "dinheiro": ["#rendaextra", "#marketingdigital"],
+                    "Deus": ["#fe", "#motivacao"],
+                    "vender": ["#vendas", "#business"],
+                    "mulher": ["#empoderamento"],
+                    "futuro": ["#inovacao"]
+                }
+
+                context_tags = []
+                for key, tags in context_map.items():
+                    if key in full_text_lower: context_tags.extend(tags)
+
+                # Deduplicate & Fill
+                final_tags = []
+                seen = set()
+
+                # A. User
+                for t in user_tags_list:
+                    if t not in seen: final_tags.append(t); seen.add(t)
+
+                # B. Organic (The most valuable ones for search)
+                for t in organic_tags:
+                    if t not in seen and len(final_tags) < 15: final_tags.append(t); seen.add(t)
+
+                # C. Context
+                for t in context_tags:
+                    if t not in seen and len(final_tags) < 15: final_tags.append(t); seen.add(t)
+
+                # D. Base
+                base_virals = ["#Shorts", "#Viral", "#Brasil"]
+                for t in base_virals:
+                    if t not in seen and len(final_tags) < 15: final_tags.append(t); seen.add(t)
+
+                tags_string = " ".join(final_tags)
+                tags_list_api = [t.replace('#', '') for t in final_tags]
+
+                # 4. Smart Title
+                clean_hook = transcript_text.replace('"', '').replace('.', '').strip()
+                if len(clean_hook) > 50: clean_hook = clean_hook[:47] + "..."
+                if not clean_hook: clean_hook = "Segredo Revelado!"
+
+                # Use the most frequent keyword in title if available
+                title_keyword = organic_keywords[0].title() if organic_keywords else "Viral"
+                title = f"{clean_hook} 🤯 #{title_keyword}" # Dynamic Title Hashtag
+                if len(title) > 100: title = title[:99]
+
+                # 5. Smart Description (With Dynamic Keywords)
                 desc = (
-                    f"😱 Você não vai acreditar nesse segredo! \n\n"
-                    f"👇 Inscreva-se no canal para mais cortes de alto valor!\n"
-                    f"{user_tags}\n\n"
+                    f"🔥 {clean_hook}\n\n"
+                    f"👇 Inscreva-se no canal para não perder o próximo vídeo!\n"
+                    f"{tags_string}\n\n"
                     "Disclaimer: This video is for educational purposes. All rights belong to respective owners.\n"
-                    "#shorts #motivation #business #mindset"
+                    "#shorts #viral #growth"
                 )
 
                 yt_id = GLOBAL_GOOGLE_SERVICES.upload_to_youtube(
                     final_out_local,
                     title=title,
                     description=desc,
-                    tags=user_tags.replace('#', '').split(' '),
+                    tags=tags_list_api,
                     privacy="private" # Safety first
                 )
 
@@ -588,8 +670,13 @@ def process_video(url, video_file, settings):
                     msg_yt = f"✅ Publicado no YouTube! https://youtu.be/{yt_id}"
                     state_manager.append_log(msg_yt)
 
-                    # POST FIRST COMMENT (Engagement)
-                    comment_text = "👇 Qual sua opinião sobre isso? Comente abaixo! \n\n✅ Inscreva-se no canal: @empreendedorismobr2026"
+                    # 6. Smart Comment (Contextual)
+                    # If we have a top keyword, ask about it
+                    topic = organic_keywords[0].capitalize() if organic_keywords else "o video"
+                    comment_text = (
+                        f"👇 Qual sua opinião sobre {topic}? Comente abaixo!\n\n"
+                        "✅ Inscreva-se no canal: @empreendedorismobr2026"
+                    )
                     GLOBAL_GOOGLE_SERVICES.post_comment(yt_id, comment_text)
 
                     yield msg_yt, 100
