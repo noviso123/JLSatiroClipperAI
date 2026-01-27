@@ -84,14 +84,13 @@ class GoogleServices:
 
         print("⚠️ Necessário Autenticação Inicial (Apenas uma vez)...")
         flow = InstalledAppFlow.from_client_secrets_file(self.client_secret_path, SCOPES)
-        # Using run_local_server ideally, but in Colab we might need run_console
-        # Detecting environment...
-        try:
-            # Try console flow for Colab/Headless
-            self.creds = flow.run_console()
-        except:
-             # Fallback
-             self.creds = flow.run_local_server(port=0)
+
+        # HEADLESS AUTH FOR COLAB (Phase 2 Requirement)
+        # We enforce run_console so the user can copy-paste the URL/Code
+        print("\n" + "="*60)
+        print("🔗 CLIQUE NESTE LINK PARA AUTENTICAR:")
+        print("="*60 + "\n")
+        self.creds = flow.run_console()
 
     def upload_to_drive(self, file_path, folder_name="JLSatiro_AI_Studio"):
         """Uploads a file to a specific folder in Drive."""

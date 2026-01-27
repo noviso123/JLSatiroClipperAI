@@ -125,7 +125,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Montserrat ExtraBold,75,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,0,2,10,10,250,1
+Style: Default,Montserrat ExtraBold,85,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,2,2,20,20,380,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -141,7 +141,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         line_text = ""
         for w in chunk:
             # Karaoke effect: {\kX} where X is duration in centiseconds
-            # Karaoke effect: {\kX} where X is duration in centiseconds
+            # V2.0: Simple Karaoke without fancy color shifts to avoid artifacts, rely on big bold text
             dur_cs = int((w['end'] - w['start']) * 100)
             line_text += f"{{\\k{dur_cs}}}{w['word']} "
 
