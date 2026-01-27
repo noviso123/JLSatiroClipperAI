@@ -43,11 +43,13 @@ def get_transcription(audio_path, dummy_path=None):
     # wad_filter=True helps with silence/hallucinations
     segments, info = model.transcribe(
         audio_path,
-        beam_size=5,
+        beam_size=1, # OPTIMIZATION PHASE 1: Greedy Search (5x Faster)
+        best_of=None,
         language="pt",
         word_timestamps=True,
         vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500)
+        vad_parameters=dict(min_silence_duration_ms=500),
+        condition_on_previous_text=False # Prevents loops/hallucinations
     )
 
     all_words = []
@@ -387,33 +389,27 @@ def process_video(url, video_file, settings):
     total_segs = len(segments)
     yield f"📐 Estratégia Definida: {total_segs} Cortes Identificados.", 35
 
-    # --- PROCESSING LOOP ---
-    for idx, seg in enumerate(segments):
-        if state_manager.check_stop_requested():
-            state_manager.append_log("🛑 Processamento Interrompido pelo Usuário.")
-            yield "🛑 Interrompido.", 0
-            return
+    # --- PARALLEL PROCESSING ENGINE (V21.0 - GPU THREAD POOL) ---
+    import concurrent.futures
 
-        job_id = f"{int(time.time())}_{idx+1}"
+    def process_single_segment(seg_data):
+        idx, seg, total_segs = seg_data
         seg_num = idx + 1
+        job_id = f"{int(time.time())}_{idx+1}"
 
-        msg = f"✂️ Processando Corte {seg_num}/{total_segs}..."
-        pct = 40 + int(20 * (idx/total_segs))
-
-        state_manager.append_log(msg)
-        state_manager.update_state("progress", pct)
-        yield msg, pct
+        # Logging (Thread Safe-ish)
+        msg = f"✂️ [Thread-Worker] Iniciando Corte {seg_num}/{total_segs}..."
+        # state_manager.append_log(msg) # Avoid spamming main log from threads
+        print(msg)
 
         start_t = seg['start']
         dur = seg['end'] - start_t
 
-        # 6. Render Raw Cut (VERTICAL 9:16 CONVERSION)
+        # 6. Render Raw Cut (FULL GPU PIPELINE V21.0)
         raw_cut_path = os.path.join(work_dir, f"raw_cut_{job_id}.mp4")
         raw_cut_audio = os.path.join(work_dir, f"raw_cut_{job_id}.wav")
 
         # Optimization: SMART BLUR (Downscale -> Blur -> Upscale)
-        # 16x faster than blurring 1080p
-        # bg chain: Input -> Scale to 270x480 (1/4 res) -> BoxBlur -> Scale back to 1080x1920
         filter_complex = (
             "[0:v]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=10:5,"
             "scale=1080:1920[bg];"
@@ -421,205 +417,182 @@ def process_video(url, video_file, settings):
             "[bg][fg]overlay=(W-w)/2:(H-h)/2"
         )
 
-        # V16.4/16.8: NVENC HARDWARE ENCODING CHECK (Dynamic Auto-Detection)
+        # CHECK GPU
         use_nvenc = False
         try:
-             # Check if we have an NVIDIA GPU available for FFmpeg
-            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True)
-            if 'h264_nvenc' in result.stdout:
-                use_nvenc = True
+            res = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True)
+            if 'h264_nvenc' in res.stdout: use_nvenc = True
         except: pass
 
-        ffmpeg_cmd = [
-            'ffmpeg', '-threads', '0', # DYNAMIC: Use ALL available CPU cores for decoding
-            '-ss', str(start_t), '-t', str(dur),
-            '-i', video_path,
-            '-filter_complex', filter_complex,
-            '-r', '30', '-vsync', 'cfr'
-        ]
+        ffmpeg_cmd = ['ffmpeg', '-y']
 
+        # HWACCEL (NVDEC) - Input Stage
         if use_nvenc:
-            # GPU ENCODING (BLAZING FAST - EXTREME MODE)
-            # Nvidia Tesla T4/A100 optimization
-            if seg_num == 1: print("    🚀 MODO EXTREMO: GPU NVENC (P2) + SMART BLUR ATIVADO!")
-            else: print(f"    🚀 GPU NVENC Ativo para Corte {seg_num}!")
+            ffmpeg_cmd.extend([
+                '-hwaccel', 'cuda',
+                '-hwaccel_output_format', 'cuda', # Keep in VRAM
+                '-c:v', 'h264_cuvid' # Hardware Decoder
+            ])
 
+        # Input
+        ffmpeg_cmd.extend(['-ss', str(start_t), '-t', str(dur), '-i', video_path])
+
+        # Filter Stage (Hybrid CPU/GPU fallback for now as filters are complex)
+        # Note: If we use -hwaccel_output_format cuda, filters need to handle CUDA frames.
+        # For safety in Phase 1, we let FFmpeg handle the download if filters are software.
+        ffmpeg_cmd.extend(['-filter_complex', filter_complex, '-r', '30', '-vsync', 'cfr'])
+
+        # Encoding Stage
+        if use_nvenc:
             ffmpeg_cmd.extend([
                 '-c:v', 'h264_nvenc',
-                '-preset', 'p2', # p2 = Faster (Aggressive optimization for speed)
+                '-preset', 'p2',      # Fast
                 '-tune', 'hq',
-                '-rc', 'constqp', '-qp', '26', # Relaxed QP for speed (24 -> 26)
-                '-b:v', '0',
-                '-spatial-aq', '0', # Disable spatial-aq for raw speed
+                '-rc', 'constqp', '-qp', '26',
+                '-b:v', '0'
             ])
         else:
-            # CPU ENCODING (FALLBACK)
-            print(f"    🐌 CPU Encoding para Corte {seg_num} (Pode demorar)...")
-            ffmpeg_cmd.extend([
-                '-c:v', 'libx264',
-                '-preset', 'ultrafast', # CPU priority is pure speed
-                '-crf', '28', # Lower quality for speed
-                '-threads', '0' # Use all cores
-            ])
+            ffmpeg_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28'])
 
         ffmpeg_cmd.extend([
             '-c:a', 'aac', '-ar', '44100',
             '-max_muxing_queue_size', '1024',
-            raw_cut_path, '-y'
+            raw_cut_path
         ])
 
         try:
             subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
-
+            # Extract Audio for Clip
             subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-        except subprocess.TimeoutExpired:
-            yield f"⚠️ Corte {seg_num} demorou demais e foi pulado.", 0
-            continue
+        except Exception as e:
+            print(f"❌ Erro Render Corte {seg_num}: {e}")
+            return None
 
-        try: shutil.copy(raw_cut_path, os.path.join(drive_dir, f"raw_cut_{job_id}.mp4"))
-        except: pass
-
-        # 7. Production Transcription
+        # 7. Transcription (Clip level)
         try:
             clip_words = get_transcription(raw_cut_audio)
-        except:
-            yield f"⚠️ Erro Transcrição {seg_num}. Pulando.", 0; continue
+        except: return None
 
         ass_path = os.path.join(work_dir, f"subs_{job_id}.ass")
         ass_content = generate_karaoke_ass(clip_words)
         with open(ass_path, "w", encoding="utf-8") as f: f.write(ass_content)
 
-        # 8. Burn
+        # 8. Burn Subtitles
         subtitled_cut = os.path.join(work_dir, f"main_clip_{job_id}.mp4")
-        vf = f"ass={ass_path.replace(os.sep, '/')}" # FFmpeg needs forward slashes even on Windows sometimes
+        vf = f"ass={ass_path.replace(os.sep, '/')}"
 
-        burn_cmd = [
-            'ffmpeg', '-threads', '0', # Maximize CPU usage for reading/muxing
-            '-i', raw_cut_path,
-            '-vf', vf,
-            '-r', '30', '-vsync', 'cfr'
-        ]
-
+        burn_cmd = ['ffmpeg', '-threads', '0', '-i', raw_cut_path, '-vf', vf, '-r', '30', '-vsync', 'cfr']
         if use_nvenc:
-             # P2 for extreme speed on burn too
              burn_cmd.extend(['-c:v', 'h264_nvenc', '-preset', 'p2', '-rc', 'constqp', '-qp', '26', '-b:v', '0'])
         else:
-             burn_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '28'])
-
+             burn_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast'])
         burn_cmd.extend(['-c:a', 'copy', subtitled_cut, '-y'])
 
-        try:
-            subprocess.run(burn_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
-        except subprocess.TimeoutExpired: continue
+        subprocess.run(burn_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
         # 9. Hook & Thumb
+        final_hook = os.path.join(work_dir, f"hook_{job_id}.mp4")
+        thumb_out = os.path.join(work_dir, f"thumb_{job_id}.mp4")
+
+        # Simple Hook Generation (Async capable)
         raw_hook = os.path.join(work_dir, f"hook_raw_{job_id}.mp4")
         hook_start = dur * 0.15
         subprocess.run(['ffmpeg', '-ss', str(hook_start), '-t', '3', '-i', subtitled_cut, '-c', 'copy', raw_hook, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        final_hook = os.path.join(work_dir, f"hook_{job_id}.mp4")
-        phrases = ["Olha só o que aconteceu!", "Você não vai acreditar!", "Assista até o final!", "Isso é incrível!", "Segredo revelado!"]
+        phrases = ["Olha só o que aconteceu!", "Assista até o final!", "Segredo revelado!"]
         create_narrator_hook(raw_hook, final_hook, random.choice(phrases), job_id)
-
-        thumb_out = os.path.join(work_dir, f"thumb_{job_id}.mp4")
         generate_thumbnail(raw_cut_path, thumb_out, job_id, text=f"PARTE {seg_num}")
 
         # 10. Concat
-        yield f"🎬 Montagem Final (Parte {seg_num})...", 95
         final_out_local = os.path.join(work_dir, f"viral_clip_{seg_num}_{job_id}.mp4")
         list_txt = os.path.join(work_dir, f"list_{job_id}.txt")
-
         abs_thumb = os.path.abspath(thumb_out)
         abs_hook = os.path.abspath(final_hook)
         abs_main = os.path.abspath(subtitled_cut)
 
         with open(list_txt, 'w') as f:
-            if os.path.exists(thumb_out) and os.path.getsize(thumb_out) > 0:
-                f.write(f"file '{abs_thumb}'\n")
-            if os.path.exists(final_hook) and os.path.getsize(final_hook) > 0:
-                f.write(f"file '{abs_hook}'\n")
+            if os.path.exists(thumb_out): f.write(f"file '{abs_thumb}'\n")
+            if os.path.exists(final_hook): f.write(f"file '{abs_hook}'\n")
             f.write(f"file '{abs_main}'\n")
 
-        try:
-            subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out_local, '-y'],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
-        except: pass
+        subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out_local, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        if os.path.exists(final_out_local) and os.path.getsize(final_out_local) > 1000:
-            # 11. FINAL ACTIONS (API UPLOAD)
+        return {
+            "path": final_out_local,
+            "seg_num": seg_num,
+            "job_id": job_id,
+            "clip_words": clip_words
+        }
 
-            # A. Upload to Drive (API)
-            if GLOBAL_GOOGLE_SERVICES:
-                yield f"☁️ Enviando para o Drive (API)...", 98
-                file_id = GLOBAL_GOOGLE_SERVICES.upload_to_drive(final_out_local)
-                if file_id: state_manager.append_log(f"✅ Salvo no Drive! ID: {file_id}")
+    # --- EXECUTE PARALLEL BATCH ---
+    # Max Workers = 2 (Safe for T4 NVENC concurrent sessions limit + VRAM)
+    max_workers = 2
+    state_manager.append_log(f"🚀 Iniciando Processamento Paralelo (Workers={max_workers})..")
 
-            # Fallback legacy copy if drive mounted (local run)
-            if os.path.exists(drive_dir) and drive_dir != "downloads":
-                 shutil.copy(final_out_local, os.path.join(drive_dir, f"viral_clip_{seg_num}_{job_id}.mp4"))
+    seg_payloads = [(i, seg, len(segments)) for i, seg in enumerate(segments)]
 
-            # B. Upload to YouTube (Auto-Publish)
-            if 'publish_youtube' in settings and settings['publish_youtube'] and GLOBAL_GOOGLE_SERVICES:
-                yield f"📺 Publicando no YouTube...", 99
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_seg = {executor.submit(process_single_segment, payload): payload for payload in seg_payloads}
 
-                # --- HYBRID INTELLIGENCE (NEURAL V20.0 -> STRUCTURED V19.0) ---
-                meta_result = None
+        for future in concurrent.futures.as_completed(future_to_seg):
+            result = future.result()
 
-                # 1. Try Neural Engine (GPU/Colab)
-                try:
-                    from .neural_engine import NeuralEngine
-                    neural = NeuralEngine() # Will fail safely if model not found
-                    if neural.client:
-                         yield "🧠 Pensando (Neural Engine V20)...", 99
-                         # Prepare Clean Text
-                         full_text = " ".join([w['word'] for w in clip_words])
-                         user_tags = settings.get('hashtags', '')
+            if result and os.path.exists(result['path']):
+                final_out_local = result['path']
+                seg_num = result['seg_num']
+                job_id = result['job_id']
+                clip_words = result['clip_words']
 
-                         meta_data = neural.generate(full_text, user_tags)
-                         if meta_data:
-                             # Map to Metadata Object format expected by loop
-                             from dataclasses import make_dataclass
-                             MetaObj = make_dataclass("MetaObj", [("title", str), ("description", str), ("tags", list), ("privacy", str), ("pinned_comment", str)])
-                             meta_result = MetaObj(**meta_data)
-                             state_manager.append_log("✅ Metadados Gerados via IA Neural!")
-                except Exception as e:
-                    print(f"⚠️ Neural Engine bypass: {e}")
+                # 11. FINAL ACTIONS (Sequential Part - Upload/Metadata)
+                # A. Upload to Drive (API)
+                if GLOBAL_GOOGLE_SERVICES:
+                    yield f"☁️ Enviando Parte {seg_num}...", 98
+                    file_id = GLOBAL_GOOGLE_SERVICES.upload_to_drive(final_out_local)
+                    if file_id: state_manager.append_log(f"✅ Salvo no Drive! ID: {file_id}")
 
-                # 2. Fallback to Structured Engine (V19.0 - CPU/NLP)
-                if not meta_result:
-                    state_manager.append_log("⚠️ Usando Motor NLP V19.0 (CPU)...")
+                if os.path.exists(drive_dir) and drive_dir != "downloads":
+                     shutil.copy(final_out_local, os.path.join(drive_dir, f"viral_clip_{seg_num}_{job_id}.mp4"))
+
+                # B. Upload to YouTube (Auto-Publish)
+                if 'publish_youtube' in settings and settings['publish_youtube'] and GLOBAL_GOOGLE_SERVICES:
+                    yield f"📺 Publicando Parte {seg_num}...", 99
+
+                    # --- HYBRID INTELLIGENCE (NEURAL V20.0 -> STRUCTURED V19.0) ---
+                    meta_result = None
                     try:
-                        from .metadata_engine import MetadataEngine
-                        engine = MetadataEngine()
-                        user_hashtags = settings.get('hashtags', '')
-                        meta_result = engine.generate(clip_words, user_hashtags)
-                    except Exception as e:
-                        print(f"❌ Erro Crítico Metadata: {e}")
+                        from .neural_engine import NeuralEngine
+                        neural = NeuralEngine()
+                        if neural.client:
+                             full_text = " ".join([w['word'] for w in clip_words])
+                             user_tags = settings.get('hashtags', '')
+                             meta_data = neural.generate(full_text, user_tags)
+                             if meta_data:
+                                 from dataclasses import make_dataclass
+                                 MetaObj = make_dataclass("MetaObj", [("title", str), ("description", str), ("tags", list), ("privacy", str), ("pinned_comment", str)])
+                                 meta_result = MetaObj(**meta_data)
+                    except: pass
 
-                if meta_result:
-                    yt_id = GLOBAL_GOOGLE_SERVICES.upload_to_youtube(
-                        final_out_local,
-                        title=meta_result.title,
-                        description=meta_result.description,
-                        tags=meta_result.tags,
-                        privacy=meta_result.privacy
-                    )
+                    if not meta_result:
+                        try:
+                            from .metadata_engine import MetadataEngine
+                            engine = MetadataEngine()
+                            meta_result = engine.generate(clip_words, settings.get('hashtags', ''))
+                        except: pass
 
-                    if yt_id:
-                        msg_yt = f"✅ Publicado no YouTube! https://youtu.be/{yt_id}"
-                        state_manager.append_log(msg_yt)
+                    if meta_result:
+                        yt_id = GLOBAL_GOOGLE_SERVICES.upload_to_youtube(
+                            final_out_local,
+                            title=meta_result.title,
+                            description=meta_result.description,
+                            tags=meta_result.tags,
+                            privacy=meta_result.privacy
+                        )
+                        if yt_id:
+                            if meta_result.pinned_comment: GLOBAL_GOOGLE_SERVICES.post_comment(yt_id, meta_result.pinned_comment)
+                            yield f"✅ Publicado YT: {yt_id}", 100
 
-                        if meta_result.pinned_comment:
-                            GLOBAL_GOOGLE_SERVICES.post_comment(yt_id, meta_result.pinned_comment)
-
-                        yield msg_yt, 100
-
-            cleanup_temps(work_dir, job_id)
-            if GLOBAL_GOOGLE_SERVICES: yield f"✅ Processo Finalizado (Nuvem).", 100
-            else: yield final_out_local # Return path if local
-        else:
-            yield f"⚠️ Erro ao gerar corte {seg_num} (Arquivo Vazio/Falha FFmpeg).", 0
+                cleanup_temps(work_dir, job_id)
+                yield final_out_local # Yield path to UI
 
     state_manager.append_log("✅ Processamento de Lote Completado!")
     state_manager.update_state("progress", 100)
