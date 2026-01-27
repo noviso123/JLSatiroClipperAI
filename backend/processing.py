@@ -184,10 +184,9 @@ def process_video(url, video_file, settings):
     else:
         yield "⬇️ Baixando...", 5
         try:
-            if not video_engine.download_authenticated_ytdlp(url, video_path):
-                video_engine.download_strategy_pytubefix(url, video_path)
-        except:
-             yield "❌ Falha no Download.", 0; return
+            video_engine.download_strategy_pytubefix(url, video_path)
+        except Exception as e:
+             yield f"❌ Falha no Download (Pytubefix): {e}", 0; return
 
     # --- ANALYSIS ---
     yield "🔊 Extraindo Áudio...", 20

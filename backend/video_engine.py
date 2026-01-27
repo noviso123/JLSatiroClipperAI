@@ -112,31 +112,9 @@ def cleanup_temps(folder, job_id):
             except: pass
 
 # --- DOWNLOADERS ---
-def download_authenticated_ytdlp(url, output_path, cookies_path=None):
-    import yt_dlp
-    print("💎 Trying Cobalt Engine (Yt-Dlp)...")
-    ydl_opts = {
-        'format': 'best', # Nuclear Option for compatibility
-        'outtmpl': output_path,
-        'merge_output_format': 'mp4',
-        'quiet': True, 'no_warnings': True, 'overwrites': True, 'nocheckcertificate': True,
-        'source_address': '0.0.0.0',
-        'extractor_args': {'youtube': {'player_client': ['web', 'android', 'ios']}},
-        # ADVANCED OPTIMIZATION: Parallel Downloads
-        'concurrent_fragment_downloads': 4,
-        'http_chunk_size': 10485760, # 10MB
-    }
-    if cookies_path: ydl_opts['cookiefile'] = cookies_path
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl: ydl.download([url])
-        return True
-    except Exception as e:
-        print(f"⚠️ Yt-Dlp Falhou: {e}")
-        return False
-
 def download_strategy_pytubefix(url, output_path):
     from pytubefix import YouTube
-    print("💎 Fallback: Trying Pytubefix...")
+    print("💎 Engine: Pytubefix (Stable)...")
     yt = YouTube(url, client='ANDROID')
     stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').desc().first()
     if not stream: stream = yt.streams.filter(file_extension='mp4').order_by('resolution').desc().first()
