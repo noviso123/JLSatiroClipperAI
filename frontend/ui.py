@@ -31,15 +31,17 @@ def scan_gallery():
     except: pass
     return clips
 
-def run_worker(url, settings):
+def run_worker(url, video_file, settings):
     """Background worker thread"""
     state_manager.set_running(True)
     state_manager.update_state("progress", 0)
-    state_manager.append_log(f"💎 Iniciando Motor Cobalt V13.3...\n🚀 URL: {url}")
+
+    source = url if url else "Arquivo Local"
+    state_manager.append_log(f"💎 Iniciando Motor Cobalt V13.3...\n🚀 Fonte: {source}")
 
     try:
         # process_video is a generator, we must consume it
-        for result in processing.process_video(url, settings):
+        for result in processing.process_video(url, video_file, settings):
             # Check stop inside the loop consumption too just in case
             if state_manager.check_stop_requested():
                 break
@@ -53,10 +55,10 @@ def run_worker(url, settings):
         state_manager.append_log("🏁 Processamento Finalizado.")
         state_manager.set_running(False)
 
-def start_processing(url, model_type, burn_subs, cookies_file, oauth_file):
+def start_processing(url, video_file, model_type, burn_subs, publish_youtube, cookies_file, oauth_file):
     """Starts the background thread"""
-    if not url:
-        return "⚠️ Erro: URL Vazia"
+    if not url and not video_file:
+        return "⚠️ Erro: Forneça uma URL do YouTube OU um arquivo de vídeo."
 
     if state_manager.get_state()['is_running']:
         return "⚠️ Já existe um processo em andamento! Aguarde ou limpe o sistema."
@@ -66,11 +68,12 @@ def start_processing(url, model_type, burn_subs, cookies_file, oauth_file):
         "model": model_type,
         "lang": "Português (BR)",
         "burn_subtitles": burn_subs,
+        "publish_youtube": publish_youtube,
         "cookies_path": cookies_file.name if cookies_file else None,
         "oauth_path": oauth_file.name if oauth_file else None
     }
 
-    t = threading.Thread(target=run_worker, args=(url, settings))
+    t = threading.Thread(target=run_worker, args=(url, video_file, settings))
     t.start()
     return "✅ Processamento Iniciado em Segundo Plano!"
 
@@ -115,31 +118,39 @@ cobalt_theme = gr.themes.Ocean(
     font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui"]
 )
 
-with gr.Blocks(title="JLSatiro Cobalt V16.5 (HYPER)", theme=cobalt_theme) as demo:
+with gr.Blocks(title="JLSatiro Clipper AI - V17.0 (EXTREME AGENT)", theme=cobalt_theme) as demo:
     with gr.Column(elem_id="main_container", variant="panel"):
         gr.Markdown(
             """
-            # 💎 JLSatiro Cobalt V16.5
-            ### *Clean. Fast. Private. CTranslate2 Hyper Speed.*
+            # 🚀 JLSatiro Clipper AI - V17.0 (EXTREME AGENT)
+            ### *RamDisk Engine. NVENC P2. Smart Blur. Max Performance.*
             """
         )
 
         with gr.Group():
-            url_input = gr.Textbox(
-                label="",
-                placeholder="Cole o link do YouTube aqui...",
-                show_label=False,
-                container=False,
-                scale=3,
-                lines=1
-            )
+            with gr.Row():
+                url_input = gr.Textbox(
+                    label="URL do YouTube",
+                    placeholder="Cole o link do YouTube aqui...",
+                    show_label=True,
+                    scale=3,
+                    lines=1
+                )
+                file_input = gr.File(
+                    label="OU Carregue um Vídeo (MP4)",
+                    file_types=[".mp4"],
+                    file_count="single",
+                    scale=2
+                )
+
             with gr.Row():
                 model_drop = gr.Dropdown(["Hyper-Whisper V3 (GPU)"], value="Hyper-Whisper V3 (GPU)", interactive=False, show_label=False, container=False, scale=1)
                 subs_check = gr.Checkbox(label="Legendas", value=True, container=False, scale=0)
-                btn_run = gr.Button("BAIXAR & CORTAR", variant="primary", scale=1)
+                youtube_check = gr.Checkbox(label="Publicar YouTube (Shorts)", value=False, container=False, scale=0)
+                btn_run = gr.Button("BAIXAR/CARREGAR & CORTAR (EXTREME MODE)", variant="primary", scale=1)
 
         # Status Display
-        status_info = gr.Markdown("**Status: ⚪ Inicializando...**")
+        status_info = gr.Markdown("**Status: ⚪ Pronto para Decolar**")
 
         with gr.Accordion("⚙️ Configurações Avançadas / Autenticação", open=False):
              gr.Markdown("### 🔐 Credenciais & Controle")
@@ -169,9 +180,19 @@ with gr.Blocks(title="JLSatiro Cobalt V16.5 (HYPER)", theme=cobalt_theme) as dem
     # Actions
     btn_run.click(
         start_processing,
-        inputs=[url_input, model_drop, subs_check, cookies_input, oauth_input],
+        inputs=[url_input, file_input, model_drop, subs_check, youtube_check, cookies_input, oauth_input],
         outputs=[reset_msg] # Output to small msg box, monitoring happens via poll
     )
+
+    # Handle File Upload for Client Secret immediately
+    def update_secret(file):
+        if file:
+            shutil.copy(file.name, "client_secret.json")
+            from backend.processing import init_google_services
+            init_google_services()
+            return "✅ Credencial Atualizada!"
+
+    oauth_input.upload(update_secret, inputs=oauth_input, outputs=reset_msg)
 
     btn_reset.click(
         nuke_system,
