@@ -409,13 +409,98 @@ def process_video(url, video_file, settings):
         raw_cut_path = os.path.join(work_dir, f"raw_cut_{job_id}.mp4")
         raw_cut_audio = os.path.join(work_dir, f"raw_cut_{job_id}.wav")
 
-        # Optimization: SMART BLUR (Downscale -> Blur -> Upscale)
-        filter_complex = (
-            "[0:v]scale=270:480:force_original_aspect_ratio=increase,crop=270:480,boxblur=10:5,"
-            "scale=1080:1920[bg];"
-            "[0:v]scale=1080:-1[fg];"
-            "[bg][fg]overlay=(W-w)/2:(H-h)/2"
-        )
+    # --- SMART CROP ENGINE (PHASE 2) ---
+    def detect_active_speaker_x(video_path, start_t, dur):
+        """
+        Analyzes 5 frames to find the average X position of the main face.
+        Returns: float (0.0 to 1.0) representing the center X relative to width.
+        """
+        try:
+            import cv2
+            import mediapipe as mp
+
+            mp_face_detection = mp.solutions.face_detection
+            detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+
+            cap = cv2.VideoCapture(video_path)
+            width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+
+            # Sample 5 frames
+            timestamps = [start_t + (dur * i / 5) for i in range(1, 5)]
+            face_x_centers = []
+
+            for ts in timestamps:
+                cap.set(cv2.CAP_PROP_POS_MSEC, ts * 1000)
+                ret, frame = cap.read()
+                if not ret: continue
+
+                results = detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                if results.detections:
+                    # Find largest face (assume speaker)
+                    max_area = 0
+                    best_center = 0.5
+
+                    for detection in results.detections:
+                        bbox = detection.location_data.relative_bounding_box
+                        area = bbox.width * bbox.height
+                        center_x = bbox.xmin + (bbox.width / 2)
+
+                        if area > max_area:
+                            max_area = area
+                            best_center = center_x
+
+                    face_x_centers.append(best_center)
+
+            cap.release()
+
+            if face_x_centers:
+                avg_x = sum(face_x_centers) / len(face_x_centers)
+                print(f"🎯 Smart Crop Alvo: {avg_x:.2f} (Baseado em {len(face_x_centers)} frames)")
+                return avg_x
+
+        except Exception as e:
+            print(f"⚠️ Erro Smart Crop: {e}")
+
+        return 0.5 # Default Center
+
+    # Detect Face Logic
+    speaker_x_norm = detect_active_speaker_x(video_path, start_t, dur)
+
+    # Calculate Crop Coordinates (Input is 16:9, Output 9:16)
+    # Target: 270x480 (to be scaled to 1080x1920)
+    # Original H is 480 (after scale).
+    # Logic: First scale input to height=480 (keep aspect ratio).
+    # Width becomes ~853. We need 270 width.
+    # Center X in pixels = speaker_x_norm * 853.
+    # Crop X = Center X - (270/2).
+
+    # FFmpeg Formula:
+    # 1. Scale height to 480 (iw*480/ih)
+    # 2. Crop w=270, h=480, x=?, y=0
+
+    # Since we can't easily get exact width in filter string without ffprobe,
+    # we use relative values or standard assume 16:9 input.
+    # Standard 16:9 -> Scale h=480 -> w=853.33
+
+    scaled_w = 853
+    crop_w = 270
+
+    center_px = speaker_x_norm * scaled_w
+    crop_x = int(center_px - (crop_w / 2))
+
+    # Clamping
+    if crop_x < 0: crop_x = 0
+    if crop_x > (scaled_w - crop_w): crop_x = (scaled_w - crop_w)
+
+    print(f"✂️ Smart Crop Coords: x={crop_x}")
+
+    # Optimization: SMART BLUR with DYNAMIC CROP
+    filter_complex = (
+        f"[0:v]scale=-1:480,crop={crop_w}:480:{crop_x}:0,boxblur=10:5,"
+        "scale=1080:1920[bg];"
+        "[0:v]scale=1080:-1[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2"
+    )
 
         # CHECK GPU
         use_nvenc = False

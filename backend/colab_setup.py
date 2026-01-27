@@ -33,7 +33,7 @@ def setup_neural_env():
         # Force reinstall with CUDA flags
         cmd = 'CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --upgrade --no-cache-dir'
         subprocess.run(cmd, shell=True)
-        subprocess.run('pip install instructor', shell=True)
+        subprocess.run('pip install instructor mediapipe opencv-python-headless', shell=True)
 
     # 2. Download Model
     if not os.path.exists(MODEL_PATH):
