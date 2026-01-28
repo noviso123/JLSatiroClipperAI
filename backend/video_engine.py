@@ -26,8 +26,8 @@ def detect_active_speaker_x(video_path, start_t, dur):
     try:
         import cv2
         import mediapipe as mp
-
-        mp_face_detection = mp.solutions.face_detection
+        from mediapipe import solutions
+        mp_face_detection = solutions.face_detection
         detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
         cap = cv2.VideoCapture(video_path)
@@ -78,8 +78,8 @@ def scan_face_positions(video_path):
     try:
         import cv2
         import mediapipe as mp
-
-        mp_face = mp.solutions.face_detection
+        from mediapipe import solutions
+        mp_face = solutions.face_detection
         detector = mp_face.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
         cap = cv2.VideoCapture(video_path)
