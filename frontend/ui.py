@@ -123,7 +123,7 @@ except AttributeError:
     print("⚠️ Tema Ocean não encontrado (Gradio antigo no Cache?). Usando Default.")
     cobalt_theme = gr.themes.Default()
 
-with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobalt_theme) as demo:
+with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)") as demo:
     with gr.Column(elem_id="main_container", variant="panel"):
         gr.Markdown(
             """
@@ -214,4 +214,4 @@ with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobal
     )
 
 if __name__ == "__main__":
-    demo.launch(share=True, allowed_paths=["/content/drive"])
+    demo.launch(share=True, allowed_paths=["/content/drive"], theme=cobalt_theme)
