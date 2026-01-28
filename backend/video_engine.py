@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import random
 import time
+import cv2
 
 def setup_directories():
     # Detect Google Colab / Linux High Performance RAM Disk
@@ -19,37 +20,32 @@ def setup_directories():
     os.makedirs(drive_dir, exist_ok=True)
     return work_dir, drive_dir
 
-def get_face_detection_module():
-    """Robustly imports MediaPipe face detection module."""
-    import mediapipe as mp
-
-    # Strategy 1: Standard
-    try: return mp.solutions.face_detection
-    except AttributeError: pass
-
-    # Strategy 2: Direct Import
+def get_face_cascade():
+    """Returns the path to the Haarcascade XML, ensuring it exists."""
+    # Try standard opencv path
     try:
-        from mediapipe import solutions
-        return solutions.face_detection
-    except (ImportError, AttributeError): pass
+        path = os.path.join(cv2.data.haarcascades, 'haarcascade_frontalface_default.xml')
+        if os.path.exists(path): return path
+    except: pass
 
-    # Strategy 3: Submodule (Old/Specific versions)
-    try:
-        import mediapipe.python.solutions.face_detection as mp_fd
-        return mp_fd
-    except ImportError: pass
+    # Fallback: Local file (if downloaded manually or in repo)
+    if os.path.exists("haarcascade_frontalface_default.xml"):
+        return "haarcascade_frontalface_default.xml"
 
-    raise ImportError("Could not import mediapipe.solutions.face_detection")
+    return None
 
 def detect_active_speaker_x(video_path, start_t, dur):
     """
-    Phase 2: Smart Crop Logic using MediaPipe.
+    Phase 2: Smart Crop Logic using OpenCV Haarcascades.
+    Robust, fast, and dependency-free (requires only opencv-python).
     """
     try:
-        import cv2
-        mp_face_detection = get_face_detection_module()
-        detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+        cascade_path = get_face_cascade()
+        if not cascade_path:
+            print("⚠️ Smart Crop: Modelo Haarcascade não encontrado. Usando centro.")
+            return 0.5
 
+        face_cascade = cv2.CascadeClassifier(cascade_path)
         cap = cv2.VideoCapture(video_path)
 
         # Sample 5 frames
@@ -61,14 +57,16 @@ def detect_active_speaker_x(video_path, start_t, dur):
             ret, frame = cap.read()
             if not ret: continue
 
-            results = detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            if results.detections:
+            # OpenCV requires Grayscale for Haar
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+
+            if len(faces) > 0:
                 max_area = 0
                 best_center = 0.5
-                for detection in results.detections:
-                    bbox = detection.location_data.relative_bounding_box
-                    area = bbox.width * bbox.height
-                    center_x = bbox.xmin + (bbox.width / 2)
+                for (x, y, w, h) in faces:
+                    area = w * h
+                    center_x = (x + w/2) / frame.shape[1] # Normalize 0-1
                     if area > max_area:
                         max_area = area
                         best_center = center_x
@@ -82,26 +80,27 @@ def detect_active_speaker_x(video_path, start_t, dur):
             return avg_x
 
     except Exception as e:
-        print(f"⚠️ Erro Smart Crop: {e}")
+        print(f"⚠️ Erro Smart Crop (OpenCV): {e}")
 
     return 0.5
 
 
 def scan_face_positions(video_path):
     """
-    Phase 5: Global Face Scan (Pre-Calculation)
+    Phase 5: Global Face Scan (Pre-Calculation) using OpenCV.
     Scans the entire video once and caches face positions.
     Returns: {timestamp (int_seconds): center_x_norm (float)}
     """
-    print("👁️ Iniciando Scan Facial Global (Smart Crop V2)...")
+    print("👁️ Iniciando Scan Facial Global (Smart Crop V3 - OpenCV)...")
     face_map = {}
 
-    # 1. Attempt Import & Setup
     try:
-        import cv2
-        mp_face = get_face_detection_module()
-        detector = mp_face.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+        cascade_path = get_face_cascade()
+        if not cascade_path:
+            print("⚠️ Modelo Facial não encontrado. Pular Scan.")
+            return {}
 
+        face_cascade = cv2.CascadeClassifier(cascade_path)
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
         duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
@@ -112,25 +111,26 @@ def scan_face_positions(video_path):
             ret, frame = cap.read()
             if not ret: break
 
-            results = detector.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            if results.detections:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            faces = face_cascade.detectMultiScale(gray, 1.1, 4)
+
+            if len(faces) > 0:
                 # Find biggest face
                 max_area = 0
                 best_center = 0.5
-                for detection in results.detections:
-                    bbox = detection.location_data.relative_bounding_box
-                    area = bbox.width * bbox.height
+                for (x, y, w, h) in faces:
+                    area = w * h
                     if area > max_area:
                         max_area = area
-                        best_center = bbox.xmin + (bbox.width / 2)
+                        best_center = (x + w/2) / frame.shape[1]
                 face_map[t] = best_center
 
         cap.release()
-        print(f"✅ Scan Completo: {len(face_map)} pontos mapeados.")
+        print(f"✅ Scan Completo (OpenCV): {len(face_map)} pontos mapeados.")
         return face_map
 
     except Exception as e:
-        print(f"⚠️ Erro durante execução do Global Scan: {e}")
+        print(f"⚠️ Erro durante execução do Global Scan (OpenCV): {e}")
         return {}
 
 def get_crop_from_cache(start_t, dur, face_map):
@@ -168,11 +168,6 @@ def build_vertical_filter_complex(crop_x, crop_w, use_cuda=False):
     """
     if use_cuda:
         # Phase 7: GPU Filters (Hardware Accelerated)
-        # 1. Scale input to height 480 (maintaining aspect ratio initially, but we force specific logic here)
-        # Note: crop is usually CPU-bound or tricky in pure hw, so we often do:
-        # hwdownload -> crop -> hwupload for complex pipelines or stay in CPU for crop.
-        # However, looking at the previous working logic:
-        # [0:v]scale_cuda=-1:480,hwdownload,format=nv12,crop={crop_w}:480:{crop_x}:0,hwupload,scale_cuda=1080:1920[bg]
         return (
             f"[0:v]scale_cuda=-1:480,hwdownload,format=nv12,crop={crop_w}:480:{crop_x}:0,hwupload,"
             "scale_cuda=1080:1920[bg];"
