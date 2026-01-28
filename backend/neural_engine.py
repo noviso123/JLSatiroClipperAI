@@ -21,10 +21,10 @@ class NeuralEngine:
         if os.path.exists(model_path):
             print("🧠 Carregando Cérebro Neural (VRAM)...")
             try:
-                # Load Llama with GPU offload
+                # Load Llama with CPU (Force Local)
                 llm = Llama(
                     model_path=model_path,
-                    n_gpu_layers=-1, # All layers to GPU
+                    n_gpu_layers=0, # Force CPU
                     n_ctx=2048, # Context window
                     verbose=False
                 )

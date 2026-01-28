@@ -128,7 +128,7 @@ except AttributeError:
     print("⚠️ Tema Ocean não encontrado (Gradio antigo no Cache?). Usando Default.")
     cobalt_theme = gr.themes.Default()
 
-with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobalt_theme) as demo:
+with gr.Blocks(title="JLSatiro Clipper AI - V24.0 (LOCAL CPU)", theme=cobalt_theme) as demo:
     with gr.Column(elem_id="main_container", variant="panel"):
         gr.Markdown(
             """
@@ -154,7 +154,7 @@ with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobal
                 )
 
             with gr.Row():
-                model_drop = gr.Dropdown(["Hyper-Whisper V3 (GPU)"], value="Hyper-Whisper V3 (GPU)", interactive=False, show_label=False, container=False, scale=1)
+                model_drop = gr.Dropdown(["Whisper V3 (CPU Local)"], value="Whisper V3 (CPU Local)", interactive=False, show_label=False, container=False, scale=1)
                 subs_check = gr.Checkbox(label="Legendas", value=True, container=False, scale=0)
                 youtube_check = gr.Checkbox(label="Publicar YouTube (Shorts)", value=False, container=False, scale=0)
                 btn_run = gr.Button("BAIXAR/CARREGAR & CORTAR (EXTREME MODE)", variant="primary", scale=1)
@@ -219,4 +219,6 @@ with gr.Blocks(title="JLSatiro Clipper AI - V23.0 (TITANIUM FINAL)", theme=cobal
     )
 
 if __name__ == "__main__":
-    demo.launch(share=True, allowed_paths=["/content/drive"])
+    # Disable share=True for Local CPU mode to avoid antivirus/FRPC issues
+    print("🌍 Iniciando Servidor Local (127.0.0.1)...")
+    demo.launch(share=False, allowed_paths=["/content/drive"])

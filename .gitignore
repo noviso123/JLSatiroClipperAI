@@ -1,10 +1,30 @@
+# Credentials
+credentials.json
+token.pickle
+upload_state.json
+client_secrets.json
+service_account.json
+
+# Browser Sessions
+browser_session/
+
+# Media and Models
+downloads/
+temp/
+output/
+models/
+*.mp4
+*.mp3
+*.wav
+*.srt
+
+# Python
 __pycache__/
 *.pyc
-.ipynb_checkpoints
-downloads/
-model/
-cookies.txt
-auth_cookies.txt
-client_secret.json
-client_secret*.json
-*.json
+.venv/
+env/
+.env
+
+# Workspace artifacts
+.gemini/
+brain/

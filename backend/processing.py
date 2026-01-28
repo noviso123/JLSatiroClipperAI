@@ -35,21 +35,13 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     start_t = seg['start']
     dur = seg['end'] - start_t
 
-    # --- RENDER PIPELINE (GPU) ---
+    # --- RENDER PIPELINE (CPU) ---
     raw_cut_path = os.path.join(work_dir, f"raw_cut_{job_id}.mp4")
     raw_cut_audio = os.path.join(work_dir, f"raw_cut_{job_id}.wav")
 
-    # Detect GPU capabilities FIRST
+    # Detect GPU capabilities FIRST - DISABLED FOR STABILITY LOCAL CPU
     use_nvenc = False
     use_cuda_filters = False
-    try:
-        res = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True)
-        if 'h264_nvenc' in res.stdout: use_nvenc = True
-
-        res_flt = subprocess.run(['ffmpeg', '-filters'], capture_output=True, text=True)
-        if 'scale_cuda' in res_flt.stdout and 'overlay_cuda' in res_flt.stdout:
-            use_cuda_filters = True
-    except: pass
 
     # Smart Crop Coords (Batch Cache)
     speaker_x_norm = video_engine.get_crop_from_cache(start_t, dur, face_map)
@@ -63,29 +55,12 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     filter_complex = video_engine.build_vertical_filter_complex(crop_x, crop_w, use_cuda=use_cuda_filters)
 
     ffmpeg_cmd = ['ffmpeg', '-y', '-max_muxing_queue_size', '9999', '-fflags', '+genpts+igndts', '-avoid_negative_ts', 'make_zero']
-    if use_nvenc:
-        ffmpeg_cmd.extend(['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda', '-c:v', 'h264_cuvid'])
-
+    # Force CPU decoding/encoding for stability
     ffmpeg_cmd.extend(['-ss', str(start_t), '-t', str(dur), '-i', video_path])
     ffmpeg_cmd.extend(['-filter_complex', filter_complex, '-r', '30', '-vsync', 'cfr'])
 
-    if use_nvenc:
-        ffmpeg_cmd.extend([
-            '-c:v', 'h264_nvenc',
-            '-preset', 'p4',           # Medium (Balance Speed/Quality)
-            '-tune', 'hq',
-            '-profile:v', 'high',
-            '-rc', 'vbr',              # Variable bitrate
-            '-cq', '20',               # Quality 20 (High)
-            '-b:v', '5M',
-            '-maxrate', '8M',
-            '-bufsize', '10M',
-            '-spatial-aq', '1',
-            '-temporal-aq', '1',
-            '-rc-lookahead', '20'
-        ])
-    else:
-        ffmpeg_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast'])
+    # CPU x264 basic settings
+    ffmpeg_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23'])
 
     ffmpeg_cmd.extend(['-c:a', 'aac', '-ar', '44100', raw_cut_path])
 
@@ -110,12 +85,9 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     vf = f"ass={ass_path.replace(os.sep, '/')}"
 
     burn_cmd = ['ffmpeg', '-threads', '0', '-i', raw_cut_path, '-vf', vf, '-r', '30']
-    if use_nvenc:
-        burn_cmd.extend([
-            '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-rc', 'vbr', '-cq', '20',
-            '-b:v', '5M', '-maxrate', '8M', '-bufsize', '10M'
-        ])
-    else: burn_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast'])
+
+    # Force CPU Encoding (Stability)
+    burn_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23'])
     burn_cmd.extend(['-c:a', 'copy', subtitled_cut, '-y'])
     subprocess.run(burn_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -131,13 +103,14 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     video_engine.generate_thumbnail(raw_cut_path, thumb_out, job_id, text=f"PARTE {seg_num}")
 
     # --- CONCAT ---
+    # --- CONCAT ---
     final_out_local = os.path.join(work_dir, f"viral_clip_{seg_num}_{job_id}.mp4")
     list_txt = os.path.join(work_dir, f"list_{job_id}.txt")
 
     with open(list_txt, 'w') as f:
-        if os.path.exists(thumb_out): f.write(f"file '{os.path.abspath(thumb_out)}'\n")
-        if os.path.exists(final_hook): f.write(f"file '{os.path.abspath(final_hook)}'\n")
-        f.write(f"file '{os.path.abspath(subtitled_cut)}'\n")
+        if os.path.exists(thumb_out): f.write(f"file '{os.path.abspath(thumb_out)}'\\n")
+        if os.path.exists(final_hook): f.write(f"file '{os.path.abspath(final_hook)}'\\n")
+        f.write(f"file '{os.path.abspath(subtitled_cut)}'\\n")
 
     subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out_local, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -149,6 +122,7 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     }
 
 def process_video(url, video_file, settings):
+    import os # Force local scope to avoid UnboundLocalError
     settings['lang'] = 'Português (BR)'
 
     # Optimization: Setup is now done in Installation Phase (Step 2)
@@ -215,20 +189,17 @@ def process_video(url, video_file, settings):
     yield f"📐 {len(segments)} Cortes Planejados.", 35
 
     # --- PARALLEL EXECUTION ---
-    # DYNAMIC WORKERS: Calculate based on VRAM (Limit: 2GB per worker approx)
-    max_workers = 2
+    # LOCAL CPU OPTIMIZATION: Calculate workers based on CPU Cores
+    # LOCAL CPU OPTIMIZATION: Calculate workers based on CPU Cores
+    # (import os moved to top level)
     try:
-        import torch
-        if torch.cuda.is_available():
-            vram_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-            # Reserve 4GB for System/Whisper/LLM, use rest for workers (approx 1.5GB each for 1080p NVENC)
-            # T4 (15GB) -> ~11GB Free -> ~6 Workers. Conservative: (VRAM - 4) / 1.5
-            calc_workers = int((vram_gb - 4) / 1.5)
-            max_workers = min(max(calc_workers, 2), 6) # Cap at 6 for stability
-            print(f"🚀 Workers Dinâmicos: {max_workers} (VRAM: {vram_gb:.1f}GB)")
+        cpu_cores = os.cpu_count() or 4
+        # Reserve 2 cores for System/Chrome, use rest for workers (min 1)
+        max_workers = max(1, cpu_cores - 2)
+        print(f"🚀 Workers Dinâmicos (CPU): {max_workers} (Cores: {cpu_cores})")
     except Exception as e:
-        print(f"⚠️ Erro ao calcular workers dinâmicos: {e}")
-        max_workers = 3 # Safe fallback
+        print(f"⚠️ Erro ao calcular workers cpu: {e}")
+        max_workers = 2 # Safe fallback
 
     state_manager.append_log(f"🚀 Iniciando Workers V23.0 ({max_workers})...")
 

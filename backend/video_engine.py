@@ -105,8 +105,8 @@ def scan_face_positions(video_path):
         fps = cap.get(cv2.CAP_PROP_FPS)
         duration = cap.get(cv2.CAP_PROP_FRAME_COUNT) / fps
 
-        # Scan every 1 second
-        for t in range(0, int(duration), 1):
+        # Scan every 2 seconds (Optimization for "Extreme Speed")
+        for t in range(0, int(duration), 2):
             cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
             ret, frame = cap.read()
             if not ret: break
