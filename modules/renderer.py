@@ -101,40 +101,76 @@ def render_clips(video_path, segments, face_map, output_dir, original_words):
         create_srt(clip_words, start, end, srt_file, offset=hook_duration)
 
         # 2. Framing
-        center_norm = get_crop_center(start, end, face_map)
-        crop_h = src_h
-        crop_w = int(src_h * (9/16))
-        center_px = center_norm * src_w
-        crop_x = int(center_px - (crop_w / 2))
-        if crop_x < 0: crop_x = 0
-        if crop_x > (src_w - crop_w): crop_x = src_w - crop_w
+        centers_norm = get_crop_center(start, end, face_map)
 
         output_file = os.path.join(output_dir, f"clip_{i+1}.mp4")
         print(f"🎬 Renderizando Clip {i+1} (Hook + TTS + Subtitles)...")
 
         escaped_srt = srt_file.replace("\\", "/").replace(":", "\\:")
-        # SUBTITLE FIX: Alignment=2 (Center), MarginV=200 (Higher), FontSize=30 (Bigger)
-        style = "ForceStyle=Alignment=2,Outline=2,Shadow=1,FontSize=28,MarginV=200,PrimaryColour=&H00FFFF"
-
-        # FFmpeg Filter Complex with Audio Mixing (10% bg + 100% TTS)
         hook_text = "ASSISTA ATÉ O FINAL ⚠️"
-        filter_str = (
-            f"[0:v]trim=start={hook_start}:end={hook_start+hook_duration},setpts=PTS-STARTPTS[vhook]; "
-            f"[0:a]atrim=start={hook_start}:end={hook_start+hook_duration},asetpts=PTS-STARTPTS,volume=0.1[ahook_bg]; "
-            f"[1:a]asetpts=PTS-STARTPTS,volume=1.0[atts]; "
-            f"[ahook_bg][atts]amix=inputs=2:duration=first[ahook_mixed]; "
-            f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[vmain]; "
-            f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS,volume=1.0[amain]; "
-            f"[vhook][ahook_mixed][vmain][amain]concat=n=2:v=1:a=1[vraw][araw]; "
-            f"[vraw]crop={crop_w}:{crop_h}:{crop_x}:0,scale=720:1280,"
-            f"drawtext=text='{hook_text}':fontcolor=white:fontsize=40:box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=h*0.2:enable='between(t,0,3)',"
-            f"subtitles='{escaped_srt}':force_style='{style}'[vout]"
-        )
+
+        if len(centers_norm) == 2:
+            # DUAL SPEAKER STACKED LAYOUT
+            c1_norm, c2_norm = centers_norm
+            crop_h = src_h
+            # Each part will be 720x640 (9:8). Crop w = crop_h * (9/8)
+            crop_w = int(src_h * (9/8))
+
+            x1 = int(c1_norm * src_w - (crop_w / 2))
+            x1 = max(0, min(x1, src_w - crop_w))
+
+            x2 = int(c2_norm * src_w - (crop_w / 2))
+            x2 = max(0, min(x2, src_w - crop_w))
+
+            # CAPTION FIX: Place in the middle for split screen
+            # MarginV=640 places it right at the center of 1280 height
+            style = "ForceStyle=Alignment=2,Outline=2,Shadow=1,FontSize=28,MarginV=620,PrimaryColour=&H00FFFF"
+
+            filter_str = (
+                f"[0:v]trim=start={hook_start}:end={hook_start+hook_duration},setpts=PTS-STARTPTS[vhook_raw]; "
+                f"[vhook_raw]crop={crop_w}:{crop_h}:{x1}:0,scale=720:1280[vhook]; "
+                f"[0:a]atrim=start={hook_start}:end={hook_start+hook_duration},asetpts=PTS-STARTPTS,volume=0.1[ahook_bg]; "
+                f"[1:a]asetpts=PTS-STARTPTS,volume=1.0[atts]; "
+                f"[ahook_bg][atts]amix=inputs=2:duration=first[ahook_mixed]; "
+                f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[vmain_raw]; "
+                f"[vmain_raw]split=2[v_top_raw][v_bot_raw]; "
+                f"[v_top_raw]crop={crop_w}:{crop_h}:{x1}:0,scale=720:640[v_top]; "
+                f"[v_bot_raw]crop={crop_w}:{crop_h}:{x2}:0,scale=720:640[v_bot]; "
+                f"[v_top][v_bot]vstack=inputs=2[vmain]; "
+                f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS,volume=1.0[amain]; "
+                f"[vhook][ahook_mixed][vmain][amain]concat=n=2:v=1:a=1[vraw][araw]; "
+                f"[vraw]drawtext=text='{hook_text}':fontcolor=white:fontsize=40:box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=h*0.2:enable='between(t,0,3)',"
+                f"subtitles='{escaped_srt}':force_style='{style}'[vout]"
+            )
+        else:
+            # SINGLE SPEAKER CROP
+            center_norm = centers_norm[0]
+            crop_h = src_h
+            crop_w = int(src_h * (9/16))
+            crop_x = int(center_norm * src_w - (crop_w / 2))
+            crop_x = max(0, min(crop_x, src_w - crop_w))
+
+            # CAPTION FIX: Shift UP to avoid mobile UI overlap (MarginV=200 -> 320)
+            style = "ForceStyle=Alignment=2,Outline=2,Shadow=1,FontSize=28,MarginV=320,PrimaryColour=&H00FFFF"
+
+            filter_str = (
+                f"[0:v]trim=start={hook_start}:end={hook_start+hook_duration},setpts=PTS-STARTPTS[vhook_raw]; "
+                f"[vhook_raw]crop={crop_w}:{crop_h}:{crop_x}:0,scale=720:1280[vhook]; "
+                f"[0:a]atrim=start={hook_start}:end={hook_start+hook_duration},asetpts=PTS-STARTPTS,volume=0.1[ahook_bg]; "
+                f"[1:a]asetpts=PTS-STARTPTS,volume=1.0[atts]; "
+                f"[ahook_bg][atts]amix=inputs=2:duration=first[ahook_mixed]; "
+                f"[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[vmain_raw]; "
+                f"[vmain_raw]crop={crop_w}:{crop_h}:{crop_x}:0,scale=720:1280[vmain]; "
+                f"[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS,volume=1.0[amain]; "
+                f"[vhook][ahook_mixed][vmain][amain]concat=n=2:v=1:a=1[vraw][araw]; "
+                f"[vraw]drawtext=text='{hook_text}':fontcolor=white:fontsize=40:box=1:boxcolor=black@0.6:boxborderw=10:x=(w-text_w)/2:y=h*0.2:enable='between(t,0,3)',"
+                f"subtitles='{escaped_srt}':force_style='{style}'[vout]"
+            )
 
         cmd = [
             'ffmpeg', '-y',
             '-i', video_path,
-            '-i', tts_file, # Input 1 is TTS
+            '-i', tts_file,
             '-filter_complex', filter_str,
             '-map', '[vout]', '-map', '[araw]',
             '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '26',
