@@ -82,18 +82,21 @@ def scan_face_positions(video_path):
     """
     print("👁️ Iniciando Scan Facial Global (Smart Crop V2)...")
     face_map = {}
+
+    # 1. Attempt Import
     try:
         import cv2
         import mediapipe as mp
-        import mediapipe as mp
-        try:
-             mp_face = mp.solutions.face_detection
-        except:
-             try:
-                 from mediapipe import solutions
-                 mp_face = solutions.face_detection
-             except:
-                 import mediapipe.python.solutions.face_detection as mp_face
+        # Standard Import (The correct way)
+        mp_face = mp.solutions.face_detection
+    except Exception as e:
+        print(f"⚠️ Smart Crop Indisponível (Erro Importação): {e}")
+        print("    -> Usando Corte Centralizado (Padrão).")
+        return {}
+
+    # 2. Run Scan
+    try:
+        print("👁️ Iniciando Scan Facial Global (Smart Crop V2)...")
         detector = mp_face.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
         cap = cv2.VideoCapture(video_path)
@@ -122,8 +125,9 @@ def scan_face_positions(video_path):
         cap.release()
         print(f"✅ Scan Completo: {len(face_map)} pontos mapeados.")
         return face_map
+
     except Exception as e:
-        print(f"⚠️ Erro no Global Scan: {e}")
+        print(f"⚠️ Erro durante execução do Global Scan: {e}")
         return {}
 
 def get_crop_from_cache(start_t, dur, face_map):
