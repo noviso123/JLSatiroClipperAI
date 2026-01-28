@@ -39,17 +39,7 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
     raw_cut_path = os.path.join(work_dir, f"raw_cut_{job_id}.mp4")
     raw_cut_audio = os.path.join(work_dir, f"raw_cut_{job_id}.wav")
 
-    # Smart Crop Coords (Batch Cache)
-    speaker_x_norm = video_engine.get_crop_from_cache(start_t, dur, face_map)
-    scaled_w = 853
-    crop_w = 270
-
-    # Calculate crop X using centralized logic
-    crop_x = video_engine.calculate_crop_x(speaker_x_norm, scaled_w, crop_w)
-
-    # Build Filter Complex (Centralized)
-    filter_complex = video_engine.build_vertical_filter_complex(crop_x, crop_w, use_cuda=use_cuda_filters)
-
+    # Detect GPU capabilities FIRST
     use_nvenc = False
     use_cuda_filters = False
     try:
@@ -60,6 +50,17 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
         if 'scale_cuda' in res_flt.stdout and 'overlay_cuda' in res_flt.stdout:
             use_cuda_filters = True
     except: pass
+
+    # Smart Crop Coords (Batch Cache)
+    speaker_x_norm = video_engine.get_crop_from_cache(start_t, dur, face_map)
+    scaled_w = 853
+    crop_w = 270
+
+    # Calculate crop X using centralized logic
+    crop_x = video_engine.calculate_crop_x(speaker_x_norm, scaled_w, crop_w)
+
+    # Build Filter Complex (Centralized)
+    filter_complex = video_engine.build_vertical_filter_complex(crop_x, crop_w, use_cuda=use_cuda_filters)
 
     ffmpeg_cmd = ['ffmpeg', '-y', '-max_muxing_queue_size', '9999', '-fflags', '+genpts+igndts', '-avoid_negative_ts', 'make_zero']
     if use_nvenc:
