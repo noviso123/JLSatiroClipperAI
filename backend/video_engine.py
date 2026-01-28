@@ -19,22 +19,35 @@ def setup_directories():
     os.makedirs(drive_dir, exist_ok=True)
     return work_dir, drive_dir
 
+def get_face_detection_module():
+    """Robustly imports MediaPipe face detection module."""
+    import mediapipe as mp
+
+    # Strategy 1: Standard
+    try: return mp.solutions.face_detection
+    except AttributeError: pass
+
+    # Strategy 2: Direct Import
+    try:
+        from mediapipe import solutions
+        return solutions.face_detection
+    except (ImportError, AttributeError): pass
+
+    # Strategy 3: Submodule (Old/Specific versions)
+    try:
+        import mediapipe.python.solutions.face_detection as mp_fd
+        return mp_fd
+    except ImportError: pass
+
+    raise ImportError("Could not import mediapipe.solutions.face_detection")
+
 def detect_active_speaker_x(video_path, start_t, dur):
     """
     Phase 2: Smart Crop Logic using MediaPipe.
     """
     try:
         import cv2
-        import mediapipe as mp
-        import mediapipe as mp
-        try:
-             mp_face_detection = mp.solutions.face_detection
-        except:
-             try:
-                 from mediapipe import solutions
-                 mp_face_detection = solutions.face_detection
-             except:
-                 import mediapipe.python.solutions.face_detection as mp_face_detection
+        mp_face_detection = get_face_detection_module()
         detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
         cap = cv2.VideoCapture(video_path)
@@ -83,20 +96,10 @@ def scan_face_positions(video_path):
     print("👁️ Iniciando Scan Facial Global (Smart Crop V2)...")
     face_map = {}
 
-    # 1. Attempt Import
+    # 1. Attempt Import & Setup
     try:
         import cv2
-        import mediapipe as mp
-        # Standard Import (The correct way)
-        mp_face = mp.solutions.face_detection
-    except Exception as e:
-        print(f"⚠️ Smart Crop Indisponível (Erro Importação): {e}")
-        print("    -> Usando Corte Centralizado (Padrão).")
-        return {}
-
-    # 2. Run Scan
-    try:
-        print("👁️ Iniciando Scan Facial Global (Smart Crop V2)...")
+        mp_face = get_face_detection_module()
         detector = mp_face.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
         cap = cv2.VideoCapture(video_path)
