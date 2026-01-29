@@ -3,256 +3,251 @@ import shutil
 import time
 import subprocess
 import concurrent.futures
+import random
+import json
+import hashlib
 from . import state_manager
 from . import audio_engine
 from . import video_engine
 from . import subtitle_engine
-from . import google_services
 
-GLOBAL_GOOGLE_SERVICES = None
-
-def init_google_services():
-    global GLOBAL_GOOGLE_SERVICES
-    if os.path.exists("client_secret.json"):
-        try:
-            GLOBAL_GOOGLE_SERVICES = google_services.GoogleServices()
-            print("✅ Google Services Ativado!")
-        except Exception as e:
-            print(f"⚠️ Falha ao iniciar Google Services: {e}")
-            GLOBAL_GOOGLE_SERVICES = None
-
-init_google_services()
+def run_ffmpeg(cmd, name="FFmpeg"):
+    """Titan Utility: Runs FFmpeg and captures errors for diagnosis."""
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        print(f"❌ Erro no {name}:")
+        print(res.stderr[-1000:]) # Show last 1000 chars of error
+        return False
+    return True
 
 def process_single_segment(seg_data, video_path, work_dir, drive_dir):
-    if len(seg_data) == 4: idx, seg, total_segs, face_map = seg_data
-    else: idx, seg, total_segs = seg_data; face_map = {}
-
-    seg_num = idx + 1
-    job_id = f"{int(time.time())}_{idx+1}"
-
-    print(f"✂️ [Thread-Worker] Iniciando Corte {seg_num}/{total_segs}...")
-
-    start_t = seg['start']
-    dur = seg['end'] - start_t
-
-    # --- RENDER PIPELINE (CPU) ---
-    raw_cut_path = os.path.join(work_dir, f"raw_cut_{job_id}.mp4")
-    raw_cut_audio = os.path.join(work_dir, f"raw_cut_{job_id}.wav")
-
-    # Detect GPU capabilities FIRST - DISABLED FOR STABILITY LOCAL CPU
-    use_nvenc = False
-    use_cuda_filters = False
-
-    # Smart Crop Coords (Batch Cache)
-    speaker_x_norm = video_engine.get_crop_from_cache(start_t, dur, face_map)
-    scaled_w = 853
-    crop_w = 270
-
-    # Calculate crop X using centralized logic
-    crop_x = video_engine.calculate_crop_x(speaker_x_norm, scaled_w, crop_w)
-
-    # Build Filter Complex (Centralized)
-    filter_complex = video_engine.build_vertical_filter_complex(crop_x, crop_w, use_cuda=use_cuda_filters)
-
-    ffmpeg_cmd = ['ffmpeg', '-y', '-max_muxing_queue_size', '9999', '-fflags', '+genpts+igndts', '-avoid_negative_ts', 'make_zero']
-    # Force CPU decoding/encoding for stability
-    ffmpeg_cmd.extend(['-ss', str(start_t), '-t', str(dur), '-i', video_path])
-    ffmpeg_cmd.extend(['-filter_complex', filter_complex, '-r', '30', '-vsync', 'cfr'])
-
-    # CPU x264 basic settings
-    ffmpeg_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23'])
-
-    ffmpeg_cmd.extend(['-c:a', 'aac', '-ar', '44100', raw_cut_path])
-
     try:
-        subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=600)
-        subprocess.run(['ffmpeg', '-i', raw_cut_path, '-ac', '1', '-ar', '16000', '-vn', raw_cut_audio, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if len(seg_data) == 8: idx, seg, total_segs, face_map, settings, batch_id, full_words, global_host = seg_data
+        else: return None
+
+        seg_num = idx + 1
+        job_id = f"{batch_id}_{seg_num}"
+        start_t = seg['start']
+        dur = seg['end'] - start_t
+
+        print(f"🔨 [TITAN-V24.6] Iniciando Render {seg_num}/{total_segs} (Dur: {dur:.1f}s)")
+
+        raw_cut_path = os.path.join(work_dir, f"r_{job_id}.mp4").replace("\\", "/")
+        v_encoder, v_preset = video_engine.get_best_encoder()
+
+        # --- DUAL SEEK (ULTRA PRECISION) ---
+        fast_ss = max(0, start_t - 30)
+        accurate_ss = start_t - fast_ss
+
+        zones = video_engine.get_layout_zones(start_t, dur, face_map)
+        local_speaker = video_engine.get_crop_from_cache(start_t, dur, face_map)
+        v_w, v_h = video_engine.get_video_dimensions(video_path)
+        s_w = int(v_w * (480 / v_h))
+        crop_w = 400
+
+        def cx_calc(val): return max(0, min(s_w - crop_w, int(val * s_w) - (crop_w // 2)))
+
+        # Guest determination (Reaction / Split content)
+        centers = [v["center"] if isinstance(v, dict) else v for v in face_map.values()]
+        guest_v = 0.5
+
+        # If faces are detected (Podcast/Interview)
+        if centers:
+            cts = {}
+            for c in centers: cts[round(c, 1)] = cts.get(round(c, 1), 0) + 1
+            srt = sorted(cts.items(), key=lambda x: x[1], reverse=True)
+
+            if len(srt) > 1 and abs(srt[1][0] - global_host) > 0.15:
+                guest_v = srt[1][0] # Real second face
+            elif global_host < 0.4:
+                guest_v = 0.82 # CONTENT IS ON RIGHT (Reaction style)
+                print(f"🎬 Titan Reaction: Host on Left ({global_host:.2f}), targetting Right Content (0.82)")
+            elif global_host > 0.6:
+                guest_v = 0.18 # CONTENT IS ON LEFT
+                print(f"🎬 Titan Reaction: Host on Right ({global_host:.2f}), targetting Left Content (0.18)")
+            else:
+                # Same person shifted or centered
+                guest_v = global_host + 0.2 if global_host < 0.5 else global_host - 0.2
+
+        # Gamer Mode Detection: If face is very small or high-up/corner
+        is_gamer = False
+        if centers:
+            # If the best face is small relative to height, it's likely a gamer webcam
+            face_meta = face_map.get(int(start_t), {})
+            if isinstance(face_meta, dict) and face_meta.get("count") == 1:
+                # Basic heuristic: if global host is centered but we are in a 'Gamer' context
+                if settings.get('layout') == 'Gamer (Face Overlay)': is_gamer = True
+
+        vf_logic = video_engine.build_dynamic_filter_complex(zones, cx_calc(local_speaker), cx_calc(global_host), cx_calc(guest_v), crop_w, is_gamer=is_gamer)
+
+        cmd_base = [
+            'ffmpeg', '-y',
+            '-ss', str(fast_ss), '-i', video_path.replace("\\", "/"),
+            '-ss', str(accurate_ss), '-t', str(dur),
+            '-filter_complex', vf_logic + ",setsar=1/1",
+            '-c:v', v_encoder,
+            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
+            '-af', 'aresample=async=1', '-avoid_negative_ts', 'make_zero'
+        ]
+
+        if v_encoder == 'libx264': cmd_base.extend(['-preset', 'ultrafast'])
+        else: cmd_base.extend(['-quality', v_preset, '-rc', 'vbr_latency'])
+
+        cmd_base.append(raw_cut_path)
+
+        if not run_ffmpeg(cmd_base, f"Base-Render {job_id}"):
+            if v_encoder != 'libx264':
+                print(f"⚠️ Falha no hardware encoder, tentando CPU...")
+                cmd_base[cmd_base.index(v_encoder)] = 'libx264'
+                # Clean hardware specific flags
+                cmd_base = [c for c in cmd_base if c not in ['-quality', v_preset, '-rc', 'vbr_latency']]
+                cmd_base.insert(cmd_base.index('libx264')+1, '-preset')
+                cmd_base.insert(cmd_base.index('-preset')+1, 'ultrafast')
+                if not run_ffmpeg(cmd_base, f"CPU-Fallback {job_id}"): return None
+            else: return None
+
+        # --- SUBTITLES ---
+        subtitled_cut = os.path.join(work_dir, f"s_{job_id}.mp4").replace("\\", "/")
+        clip_w = [w for w in full_words if w['start'] >= (start_t - 0.5) and w['end'] <= (start_t + dur + 0.5)]
+        for cw in clip_w:
+            cw['start'] = max(0, cw['start'] - start_t)
+            cw['end'] = cw['end'] - start_t
+
+        ass_path = os.path.join(work_dir, f"sub_{job_id}.ass")
+        with open(ass_path, "w", encoding="utf-8") as f: f.write(subtitle_engine.generate_karaoke_ass(clip_w))
+
+        # Windows-Safe ASS Filter Path
+        escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
+
+        cmd_sub = [
+            'ffmpeg', '-y', '-i', raw_cut_path,
+            '-vf', f"ass='{escaped_ass}',setsar=1/1",
+            '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
+            '-af', 'aresample=async=1',
+            subtitled_cut
+        ]
+        if not run_ffmpeg(cmd_sub, f"Subtitle-Render {job_id}"): return None
+
+        # --- POST PROD ---
+        thumb_p = os.path.join(work_dir, f"t_{job_id}.mp4").replace("\\", "/")
+        video_engine.generate_thumbnail(raw_cut_path, thumb_p, job_id, text=f"PARTE {seg_num}")
+
+        final_hook = os.path.join(work_dir, f"h_{job_id}.mp4").replace("\\", "/")
+        narr_p = os.path.join(work_dir, f"n_{job_id}.mp3")
+        txt_h = random.choice(["O SEGREDO!", "ISSO É INSANO!", "OLHA ISSO!", "VOCÊ SABIA?"])
+        audio_engine.generate_hook_narrator(txt_h, narr_p)
+
+        raw_h = os.path.join(work_dir, f"hr_{job_id}.mp4").replace("\\", "/")
+        h_start = min(dur * 0.15, max(0, dur - 3.1))
+        cmd_hr = [
+            'ffmpeg', '-y', '-ss', str(h_start), '-t', '3', '-i', subtitled_cut,
+            '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
+            '-af', 'aresample=async=1', '-avoid_negative_ts', 'make_zero',
+            raw_h
+        ]
+        if not run_ffmpeg(cmd_hr, f"Hook-Extraction {job_id}"): return None
+
+        video_engine.create_narrator_hook(raw_h, final_hook, txt_h, job_id, narr_p)
+
+        # --- FINAL FUSION (V24.7 FIX) ---
+        prod_out = os.path.join(work_dir, f"out_{job_id}.mp4").replace("\\", "/")
+        final_drive = os.path.join(drive_dir, f"clip_{batch_id}_{seg_num}.mp4").replace("\\", "/")
+
+        inputs = []
+        if os.path.exists(thumb_p): inputs.extend(['-i', thumb_p])
+        if os.path.exists(final_hook): inputs.extend(['-i', final_hook])
+        if os.path.exists(subtitled_cut): inputs.extend(['-i', subtitled_cut])
+        else: return None
+
+        n_ins = len(inputs) // 2
+
+        # Sincronia Titanium: aresample=async=1 integrado na fusão
+        f_concat = "".join([f"[{i}:v][{i}:a]" for i in range(n_ins)])
+        f_concat += f"concat=n={n_ins}:v=1:a=1[v_raw][a_raw];"
+        f_concat += "[v_raw]setsar=1/1[vf];"
+        f_concat += "[a_raw]aresample=async=1[af]"
+
+        cmd_final = [
+            'ffmpeg', '-y'] + inputs + [
+            '-filter_complex', f_concat,
+            '-map', '[vf]', '-map', '[af]',
+            '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-c:a', 'aac', '-ar', '44100', '-ac', '2',
+            '-avoid_negative_ts', 'make_zero',
+            prod_out
+        ]
+        if run_ffmpeg(cmd_final, f"Final-Fusion {job_id}"):
+            shutil.copy(prod_out, final_drive)
+            print(f"✅ [SUCCESS] {job_id} -> {final_drive}")
+            return {"path": final_drive, "seg_num": seg_num}
+
+        return None
     except Exception as e:
-        print(f"❌ Erro Render: {e}")
+        print(f"❌ Titan Crash: {e}")
         return None
 
-    # --- TRANSCRIPTION & SUBS ---
-    try:
-        clip_words = audio_engine.get_transcription(raw_cut_audio)
-    except: return None
-
-    ass_path = os.path.join(work_dir, f"subs_{job_id}.ass")
-    ass_content = subtitle_engine.generate_karaoke_ass(clip_words)
-    with open(ass_path, "w", encoding="utf-8") as f: f.write(ass_content)
-
-    # --- BURN ---
-    subtitled_cut = os.path.join(work_dir, f"main_clip_{job_id}.mp4")
-    vf = f"ass={ass_path.replace(os.sep, '/')}"
-
-    burn_cmd = ['ffmpeg', '-threads', '0', '-i', raw_cut_path, '-vf', vf, '-r', '30']
-
-    # Force CPU Encoding (Stability)
-    burn_cmd.extend(['-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '23'])
-    burn_cmd.extend(['-c:a', 'copy', subtitled_cut, '-y'])
-    subprocess.run(burn_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-
-    # --- POST PROD (HOOK/THUMB) ---
-    final_hook = os.path.join(work_dir, f"hook_{job_id}.mp4")
-    thumb_out = os.path.join(work_dir, f"thumb_{job_id}.mp4")
-
-    raw_hook = os.path.join(work_dir, f"hook_raw_{job_id}.mp4")
-    hook_start = dur * 0.15
-    subprocess.run(['ffmpeg', '-ss', str(hook_start), '-t', '3', '-i', subtitled_cut, '-c', 'copy', raw_hook, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    video_engine.create_narrator_hook(raw_hook, final_hook, "OLHA ISSO", job_id)
-    video_engine.generate_thumbnail(raw_cut_path, thumb_out, job_id, text=f"PARTE {seg_num}")
-
-    # --- CONCAT ---
-    # --- CONCAT ---
-    final_out_local = os.path.join(work_dir, f"viral_clip_{seg_num}_{job_id}.mp4")
-    list_txt = os.path.join(work_dir, f"list_{job_id}.txt")
-
-    with open(list_txt, 'w') as f:
-        if os.path.exists(thumb_out): f.write(f"file '{os.path.abspath(thumb_out)}'\\n")
-        if os.path.exists(final_hook): f.write(f"file '{os.path.abspath(final_hook)}'\\n")
-        f.write(f"file '{os.path.abspath(subtitled_cut)}'\\n")
-
-    subprocess.run(['ffmpeg', '-f', 'concat', '-safe', '0', '-i', list_txt, '-c', 'copy', final_out_local, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    return {
-        "path": final_out_local,
-        "seg_num": seg_num,
-        "job_id": job_id,
-        "clip_words": clip_words
-    }
-
-def process_video(url, video_file, settings):
-    import os # Force local scope to avoid UnboundLocalError
-    settings['lang'] = 'Português (BR)'
-
-    # Optimization: Setup is now done in Installation Phase (Step 2)
-
+def process_video(url, video_file, hashtags="", layout_mode="Dinâmico (Auto-IA)", publish_youtube=False):
+    import hashlib
+    batch_id = hashlib.md5((url or "file").encode()).hexdigest()[:8]
     work_dir, drive_dir = video_engine.setup_directories()
+    v_p = os.path.join(work_dir, "input.mp4").replace("\\", "/")
+    a_p = os.path.join(work_dir, "input.wav").replace("\\", "/")
 
-    video_path = os.path.join(work_dir, "input_video.mp4")
-    audio_path = os.path.join(work_dir, "input_audio.wav")
+    if not os.path.exists(v_p):
+        yield "⬇️ Baixando Vídeo...", 10
+        if video_file: shutil.copy(video_file.name if hasattr(video_file, 'name') else video_file, v_p)
+        else: video_engine.download_strategy_yt_dlp(url, v_p)
 
-    # --- INPUT HANDLING ---
-    if video_file:
-         yield "📂 Arquivo Local...", 5
-         try:
-             input_path = video_file.name if hasattr(video_file, 'name') else video_file
-             shutil.copy(input_path, video_path)
-         except Exception as e:
-             yield f"❌ Erro leitura: {e}", 0; return
-    else:
-        yield "⬇️ Baixando...", 5
-        try:
-            video_engine.download_strategy_pytubefix(url, video_path)
-        except Exception as e:
-             yield f"❌ Falha no Download (Pytubefix): {e}", 0; return
+    if not os.path.exists(a_p):
+        yield "🔊 Extraindo Áudio...", 20
+        subprocess.run(['ffmpeg', '-y', '-i', v_p, '-vn', '-ac', '1', '-ar', '16000', a_p], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # --- ANALYSIS ---
-    yield "🔊 Extraindo Áudio...", 20
-    subprocess.run(['ffmpeg', '-threads', '0', '-i', video_path, '-ac', '1', '-ar', '16000', '-vn', audio_path, '-y'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    yield "🧠 Inteligência Whisper...", 30
+    words = audio_engine.get_transcription(a_p)
+    yield "👁️ Scan Facial...", 40
+    f_map = video_engine.scan_face_positions(v_p)
 
-    yield "🧠 Transcrevendo (Whisper)...", 30
-    full_words = audio_engine.get_transcription(audio_path)
-    if not full_words: yield "⚠️ Silêncio.", 100; return
+    g_host = 0.5
+    if f_map:
+        centers = [v["center"] if isinstance(v, dict) else v for v in f_map.values()]
+        if centers:
+            cts = {}
+            for c in centers: cts[round(c, 1)] = cts.get(round(c, 1), 0) + 1
+            g_host = max(cts, key=cts.get)
 
-    # BATCH SCAN (Phase 5)
-    yield "👁️ Analisando Rosto (Global Scan)...", 33
-    face_map = video_engine.scan_face_positions(video_path)
-
-    # --- SEGMENTATION ---
     segments = []
-    current_start_word = 0
-    TARGET_DURATION = 60.0
-    while current_start_word < len(full_words):
-        start_time = full_words[current_start_word]['start']
-        target_end = start_time + TARGET_DURATION
-        best_end_idx = -1
-        for i in range(current_start_word, len(full_words)):
-            w = full_words[i]
-            if w['end'] >= target_end:
-                best_end_idx = i
-                # Simple pause detection scan
-                for j in range(i, min(len(full_words), i+30)):
-                    if j+1 < len(full_words) and (full_words[j+1]['start'] - full_words[j]['end']) > 0.5:
-                        best_end_idx = j; break
-                break
+    c = 0
+    while c < len(words):
+        st = words[c]['start']
+        et = st + 60
+        e_idx = c
+        while e_idx < len(words) and words[e_idx]['end'] < et: e_idx += 1
+        segments.append({'start': st, 'end': words[min(e_idx, len(words)-1)]['end']})
+        c = e_idx + 1
 
-        if best_end_idx == -1: best_end_idx = len(full_words) - 1
-        seg_end_time = full_words[best_end_idx]['end']
+    yield f"🚀 Processando {len(segments)} Cortes...", 50
+    total = len(segments)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        payloads = [(i, s, total, f_map, {'layout': layout_mode}, batch_id, words, g_host) for i, s in enumerate(segments)]
+        futures = [executor.submit(process_single_segment, p, v_p, work_dir, drive_dir) for p in payloads]
+        done = 0
+        for f in concurrent.futures.as_completed(futures):
+            done += 1
+            res = f.result()
+            if res:
+                yield f"✅ Corte {res['seg_num']} OK", int(50 + (done/total*50))
 
-        if (seg_end_time - start_time) >= 50.0:
-            segments.append({'start': start_time, 'end': seg_end_time})
-
-        current_start_word = best_end_idx + 1
-        if current_start_word >= len(full_words): break
-
-    yield f"📐 {len(segments)} Cortes Planejados.", 35
-
-    # --- PARALLEL EXECUTION ---
-    # LOCAL CPU OPTIMIZATION: Calculate workers based on CPU Cores
-    # LOCAL CPU OPTIMIZATION: Calculate workers based on CPU Cores
-    # (import os moved to top level)
-    try:
-        cpu_cores = os.cpu_count() or 4
-        # Reserve 2 cores for System/Chrome, use rest for workers (min 1)
-        max_workers = max(1, cpu_cores - 2)
-        print(f"🚀 Workers Dinâmicos (CPU): {max_workers} (Cores: {cpu_cores})")
-    except Exception as e:
-        print(f"⚠️ Erro ao calcular workers cpu: {e}")
-        max_workers = 2 # Safe fallback
-
-    state_manager.append_log(f"🚀 Iniciando Workers V23.0 ({max_workers})...")
-
-    seg_payloads = [(i, seg, len(segments), face_map) for i, seg in enumerate(segments)]
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Pass static checks to avoid pickling issues
-        futures = {executor.submit(process_single_segment, p, video_path, work_dir, drive_dir): p for p in seg_payloads}
-
-        for future in concurrent.futures.as_completed(futures):
-            res = future.result()
-            if not res or not os.path.exists(res['path']): continue
-
-            # --- UPLOAD & METADATA ---
-            fpath = res['path']
-            snum = res['seg_num']
-            cw = res['clip_words']
-            jid = res['job_id']
-
-            if GLOBAL_GOOGLE_SERVICES:
-                yield f"☁️ Upload Cort {snum}...", 95
-                GLOBAL_GOOGLE_SERVICES.upload_to_drive(fpath)
-
-            if 'publish_youtube' in settings and settings['publish_youtube'] and GLOBAL_GOOGLE_SERVICES:
-                yield f"📺 Publicando Corte {snum}...", 99
-
-                # Hybrid Metadata
-                meta_res = None
-                try: # V20
-                     from .neural_engine import NeuralEngine
-                     ne = NeuralEngine()
-                     if ne.client:
-                         txt = " ".join([w['word'] for w in cw])
-                         d = ne.generate(txt, settings.get('hashtags', ''))
-                         if d:
-                             from dataclasses import make_dataclass
-                             MO = make_dataclass("MetaObj", [("title", str), ("description", str), ("tags", list), ("privacy", str), ("pinned_comment", str)])
-                             meta_res = MO(**d)
-                except: pass
-
-                if not meta_res: # V19
+                # --- AUTOMATIC YOUTUBE PUBLISH (V24.10) ---
+                if publish_youtube:
                     try:
-                        from .metadata_engine import MetadataEngine
-                        meta_res = MetadataEngine().generate(cw, settings.get('hashtags', ''))
-                    except: pass
+                        from backend import youtube_uploader
+                        title = f"Destaque {job_id} #shorts"
+                        youtube_uploader.upload_video(res['path'], title, hashtags)
+                        yield f"🚀 Publicado no YouTube: {res['seg_num']}", int(50 + (done/total*50))
+                    except Exception as e:
+                        print(f"⚠️ Erro ao publicar: {e}")
 
-                if meta_res:
-                    ytid = GLOBAL_GOOGLE_SERVICES.upload_to_youtube(fpath, meta_res.title, meta_res.description, meta_res.tags, meta_res.privacy)
-                    if ytid and meta_res.pinned_comment:
-                        GLOBAL_GOOGLE_SERVICES.post_comment(ytid, meta_res.pinned_comment)
-
-            video_engine.cleanup_temps(work_dir, jid)
-            yield fpath # Return to UI
-
-    state_manager.append_log("✅ Lote Finalizado!")
-    yield "✅ Lote Finalizado!", 100
+                yield res['path']
+    yield "✅ Finalizado!", 100

@@ -16,7 +16,11 @@ class VideoMetadataSchema(BaseModel):
     pinned_comment: str = Field(description="Pergunta de engajamento para fixar nos comentários.")
 
 class NeuralEngine:
-    def __init__(self, model_path="model.gguf"):
+    def __init__(self, model_path=None):
+        if model_path is None:
+            # Titanium Protocol: Internal model folder
+            model_path = os.path.join(os.getcwd(), "models", "llama", "model.gguf")
+
         self.client = None
         if os.path.exists(model_path):
             print("🧠 Carregando Cérebro Neural (VRAM)...")

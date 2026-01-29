@@ -11,6 +11,7 @@ _STATE = {
     "is_running": False,
     "log_history": "",
     "progress": 0,
+    "heartbeat": 0,
     "status_message": "",
     "gallery_files": [],
     "stop_requested": False
@@ -30,14 +31,18 @@ def load_state():
             print(f"Erro ao carregar estado: {e}")
     return _STATE
 
+def _save_not_locked():
+    """Internal save - MUST be called while holding the LOCK"""
+    try:
+        with open(STATE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(_STATE, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        print(f"Erro ao salvar estado: {e}")
+
 def save_state():
-    """Saves current state to disk"""
+    """Saves current state to disk with lock protection"""
     with LOCK:
-        try:
-            with open(STATE_FILE, 'w', encoding='utf-8') as f:
-                json.dump(_STATE, f, ensure_ascii=False, indent=4)
-        except Exception as e:
-            print(f"Erro ao salvar estado: {e}")
+        _save_not_locked()
 
 def get_state():
     """Returns a copy of the current state"""
@@ -45,16 +50,37 @@ def get_state():
         return _STATE.copy()
 
 def update_state(key, value):
-    """Updates a specific key in the state and saves to disk"""
+    """Updates a specific key in the state and saves to disk atomically"""
     with LOCK:
         _STATE[key] = value
-    save_state()
+        _save_not_locked()
 
 def append_log(message):
-    """Appends a message to the log history"""
+    """Appends a message to the log history atomically (Chronological Order with 500 lines cap)"""
     with LOCK:
-        _STATE["log_history"] = message + "\n" + _STATE["log_history"]
-    save_state()
+        history = _STATE.get("log_history", "")
+        new_history = history + message + "\n"
+
+        # Performance Guard: Keep only last 500 lines to avoid UI lag
+        lines = new_history.split("\n")
+        if len(lines) > 500:
+            new_history = "\n".join(lines[-500:])
+
+        _STATE["log_history"] = new_history
+        _save_not_locked()
+
+def clear_logs():
+    """Clears the log history atomically"""
+    with LOCK:
+        _STATE["log_history"] = "♻️ HISTÓRICO DE LOGS LIMPADO.\n"
+        _save_not_locked()
+    return "♻️ Histórico de Logs Limpo!"
+
+def beat():
+    """Updates the heartbeat timestamp to show the system is alive"""
+    with LOCK:
+        _STATE["heartbeat"] = time.time()
+        _save_not_locked()
 
 def set_running(running):
     update_state("is_running", running)

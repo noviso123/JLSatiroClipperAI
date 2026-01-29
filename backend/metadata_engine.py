@@ -109,8 +109,8 @@ class MetadataEngine:
         if len(clean_hook) > 50: clean_hook = clean_hook[:47] + "..."
         if not clean_hook: clean_hook = "Segredo Revelado!"
 
-        title_keyword = organic_keywords[0].title() if organic_keywords else "Viral"
-        title = f"{clean_hook} 🤯 #{title_keyword}"
+        title_keyword = organic_keywords[0].upper() if organic_keywords else "VIRAL"
+        title = f"{clean_hook} 🤯| #{title_keyword} #shorts"
 
         # 5. Smart Description
         description = (
@@ -125,7 +125,7 @@ class MetadataEngine:
         topic = organic_keywords[0].capitalize() if organic_keywords else "o video"
         comment = (
             f"👇 Qual sua opinião sobre {topic}? Comente abaixo!\n\n"
-            "✅ Inscreva-se no canal: @empreendedorismobr2026"
+            "✅ Inscreva-se no canal para mais conteúdos como este!"
         )
 
         metadata = VideoMetadata(

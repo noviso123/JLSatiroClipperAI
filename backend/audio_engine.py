@@ -1,5 +1,11 @@
 import os
+import ssl
 from faster_whisper import WhisperModel
+
+# Titanium Global SSL Bypass: Mandatory for restricted network environments
+try:
+    ssl._create_default_https_context = ssl._create_unverified_context
+except: pass
 
 # --- Global Cache ---
 _CACHED_MODEL = None
@@ -7,13 +13,22 @@ _CACHED_MODEL = None
 def get_cached_model():
     global _CACHED_MODEL
     if _CACHED_MODEL is None:
-        print(f"⚡ Carregando Modelo LOCAL CPU (Faster-Whisper Large-V3)...")
-        try:
-            # Force CPU / int8 for non-GPU Environment
-            _CACHED_MODEL = WhisperModel("large-v3", device="cpu", compute_type="int8")
-        except Exception as e:
-            print(f"⚠️ Erro ao carregar modelo: {e}. Tentando 'small'.")
-            _CACHED_MODEL = WhisperModel("small", device="cpu", compute_type="int8")
+        # Titanium Hermetic Protocol: Strictly Local
+        local_project_model = os.path.join(os.getcwd(), "models", "whisper-tiny")
+
+        if os.path.exists(local_project_model):
+            print(f"📦 Carregando Cérebro Whisper (OFFLINE)...")
+            try:
+                cpu_cores = os.cpu_count() or 4
+                _CACHED_MODEL = WhisperModel(local_project_model, device="cpu", compute_type="int8", cpu_threads=cpu_cores, num_workers=cpu_cores, local_files_only=True)
+                return _CACHED_MODEL
+            except Exception as e:
+                print(f"❌ Erro ao carregar inteligência local: {e}")
+        else:
+            print(f"🚨 ERRO CRÍTICO: Inteligência não encontrada em {local_project_model}")
+            print("👉 Certifique-se de que a pasta 'models' está presente na raiz.")
+
+        _CACHED_MODEL = None
     return _CACHED_MODEL
 
 def warmup_model():
@@ -48,20 +63,28 @@ def get_transcription(audio_path):
 
     print(f"⚡ Transcrevendo (Hyper-Speed C++ Engine)... {os.path.basename(audio_path)}")
 
-    # Phase 1 Optimization: beam_size=1 (Greedy)
+    # Titanium Hermetic: Using only essential stable arguments
     segments, info = model.transcribe(
         audio_path,
         beam_size=1,
-        best_of=None,
         language="pt",
         word_timestamps=True,
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500),
+        vad_filter=False,
         condition_on_previous_text=False
     )
 
+    from backend import state_manager
     all_words = []
+
+    # Track segment progress for real-time feedback
+    seg_count = 0
     for segment in segments:
+        seg_count += 1
+        txt = segment.text.strip()
+        if txt:
+            state_manager.append_log(f"🎙️ [Transcrição] {txt}")
+            state_manager.beat() # Keep UI alive
+
         for word in segment.words:
             all_words.append({
                 "word": word.word,
@@ -69,76 +92,52 @@ def get_transcription(audio_path):
                 "end": word.end
             })
 
+    state_manager.append_log(f"✅ Transcrição Concluída ({seg_count} frases).")
     return all_words
 
-def analyze_energy_segmentation(audio_path, full_words, target_duration=60):
+def generate_hook_narrator(text, output_path):
     """
-    Phase 6: Advanced Energy-Based Segmentation (Librosa).
+    Titan Resilient Narrator: Prioritizes local files, then downloads with SSL bypass.
     """
+    import asyncio
+    import edge_tts
+    import ssl
+    import hashlib
+    import subprocess
+    import shutil
+
+    # 1. Local Cache Check (Avoid SSL problems)
+    clean_text = "".join([c for c in text.upper() if c.isalnum() or c.isspace()]).strip()
+    hash_txt = hashlib.md5(clean_text.encode()).hexdigest()[:10]
+    local_hook = os.path.join("models", "hooks", f"{hash_txt}.mp3")
+
+    if os.path.exists(local_hook):
+        print(f"💎 Usando Hook Offline: {text}")
+        shutil.copy(local_hook, output_path)
+        return True
+
+    # 2. Online Attempt with SSL Bypass
+    print(f"🎙️ Tentando gerar Narrador online: {text}")
     try:
-        import librosa
-        import numpy as np
+        ssl_ctx = ssl._create_unverified_context()
+        VOICE = "pt-BR-AntonioNeural"
 
-        print("⚡ Analisando Energia do Áudio (Librosa)...")
-        y, sr = librosa.load(audio_path, sr=16000)
-        rms = librosa.feature.rms(y=y, frame_length=2048, hop_length=512)[0]
-        times = librosa.frames_to_time(range(len(rms)), sr=sr, hop_length=512)
+        async def _download():
+            communicate = edge_tts.Communicate(text, VOICE)
+            await communicate.save(output_path)
+            # Try to cache for next time
+            os.makedirs(os.path.dirname(local_hook), exist_ok=True)
+            try: shutil.copy(output_path, local_hook)
+            except: pass
+            return True
 
-        segments = []
-        current_start = 0
-
-        while current_start < len(full_words):
-            start_time = full_words[current_start]['start']
-            target_end = start_time + target_duration
-
-            best_score = -1
-            best_idx = -1
-
-            # Scan candidates around target duration (+- 10s)
-            for i in range(current_start, len(full_words)):
-                w = full_words[i]
-                if w['end'] > (target_end + 15): break # Optimization: limit scan
-                if w['end'] < (target_end - 15): continue
-
-                # Metrics
-                dist_penalty = abs(w['end'] - target_end) / 15.0 # 0.0 to 1.0 (lower is better)
-
-                # Pause Score
-                pause_dur = 0
-                if i+1 < len(full_words):
-                    pause_dur = full_words[i+1]['start'] - w['end']
-                pause_score = min(pause_dur / 1.0, 1.0) # 1.0 = 1s pause (good)
-
-                # Energy Score
-                time_idx = np.searchsorted(times, w['end'])
-                energy_score = 1.0
-                if time_idx < len(rms):
-                    # Invert energy: we want LOW energy cuts
-                    norm_energy = rms[time_idx] / (np.max(rms) + 1e-6)
-                    energy_score = 1.0 - norm_energy
-
-                # Final Score (Weighted)
-                # We want: Close to target time, High Pause, Low Energy
-                score = (0.3 * (1 - dist_penalty)) + (0.4 * pause_score) + (0.3 * energy_score)
-
-                if score > best_score:
-                    best_score = score
-                    best_idx = i
-
-            if best_idx != -1:
-                segments.append({'start': start_time, 'end': full_words[best_idx]['end']})
-                current_start = best_idx + 1
-            else:
-                # Fallback: Just cut at target
-                segments.append({'start': start_time, 'end': min(target_end, full_words[-1]['end'])})
-                # Advance approximate words based on 150wpm (2.5 wps)
-                approx_words = int(60 * 2.5)
-                current_start += approx_words
-                if current_start >= len(full_words): break
-
-        print(f"⚡ Segmentação por Energia: {len(segments)} cortes refinados.")
-        return segments
-
+        asyncio.run(_download())
+        return os.path.exists(output_path)
     except Exception as e:
-        print(f"⚠️ Erro Librosa (Fallback Simples): {e}")
-        return None
+        print(f"⚠️ Falha no Narrador TTS: {e}")
+        # Final Fallback: 3s Silence to maintain video timing
+        subprocess.run([
+            'ffmpeg', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+            '-t', '3', '-c:a', 'aac', '-ar', '44100', output_path
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return False
