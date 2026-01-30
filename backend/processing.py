@@ -60,19 +60,26 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
         g_host_y = 0.35 # Default to upper third if unknown
 
         if face_map:
-            centers_x = []
-            centers_y = []
+            faces = []
             for v in face_map.values():
                 if isinstance(v, dict) and "faces" in v and v["faces"]:
                     # Look at primary face
                     f = v["faces"][0]
-                    centers_x.append(f.get("center", 0.5))
-                    centers_y.append(f.get("center_y", 0.35))
+                    faces.append(f)
 
-            if centers_x:
-                # Simple average for stability across the clip
-                g_host = sum(centers_x) / len(centers_x)
-                g_host_y = sum(centers_y) / len(centers_y)
+            if faces:
+                # TITAN VISION V34: Multi-Face Host Locking
+                # Instead of averaging all faces (which breaks in Podcast scenarios),
+                # we identify the DOMINANT FACE (Largest Area) as the Host.
+
+                # Sort faces by Area (Largest first)
+                sorted_faces = sorted(faces, key=lambda x: x['area'], reverse=True)
+                primary_face = sorted_faces[0]
+
+                g_host = primary_face['center']
+                g_host_y = primary_face['center_y']
+
+                # Future: Could use 'last_g_host' for temporal stability/smoothing.
 
                 # Recalculate guest for V30 (Extreme Isolation)
                 # Scale 900 + Target 0.75 ensures we crop purely the right side (Screen),
