@@ -56,20 +56,29 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
                 centers.append(v["faces"][0]["center"])
         guest_v = 0.5
 
-        if centers:
-            cts = {}
-            for c in centers: cts[round(c, 1)] = cts.get(round(c, 1), 0) + 1
-            srt = sorted(cts.items(), key=lambda x: x[1], reverse=True)
+        g_host = 0.5
+        g_host_y = 0.35 # Default to upper third if unknown
 
-            if len(srt) > 1 and abs(srt[1][0] - global_host) > 0.15:
-                guest_v = srt[1][0]
-            elif global_host < 0.48:
-                # Content (Phone) is likely in hands, near the body, not far right edge
-                guest_v = global_host + 0.15
-            elif global_host > 0.52:
-                guest_v = global_host - 0.15
-            else:
-                guest_v = global_host + 0.2 if global_host < 0.5 else global_host - 0.2
+        if face_map:
+            centers_x = []
+            centers_y = []
+            for v in face_map.values():
+                if isinstance(v, dict) and "faces" in v and v["faces"]:
+                    # Look at primary face
+                    f = v["faces"][0]
+                    centers_x.append(f.get("center", 0.5))
+                    centers_y.append(f.get("center_y", 0.35))
+
+            if centers_x:
+                # Simple average for stability across the clip
+                g_host = sum(centers_x) / len(centers_x)
+                g_host_y = sum(centers_y) / len(centers_y)
+
+                # Recalculate guest for V26 (Hands/Body Logic)
+                # If we know host is at g_host, content is nearby
+                if g_host < 0.48: guest_v = g_host + 0.15
+                elif g_host > 0.52: guest_v = g_host - 0.15
+                else: guest_v = g_host
 
         is_gamer = (settings.get('layout') == 'Modo Gamer')
         is_reaction = (settings.get('layout') == 'Reação (Rosto/Base)')
@@ -78,6 +87,7 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
             zones,
             cx_calc_600(local_speaker),
             cx_calc_600(global_host),
+            g_host_y, # NEW: Vertical Tracker
             cx_calc_600(guest_v),
             crop_w,
             is_gamer=is_gamer,

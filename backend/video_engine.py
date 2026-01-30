@@ -46,11 +46,12 @@ def scan_face_positions(video_path):
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             faces = face_cascade.detectMultiScale(gray, 1.1, 4)
             if len(faces) > 0:
-                # V25: Collect up to 2 significant centers (most left and most right)
+                # V25/V26: Collect up to 2 significant centers (most left and most right) WITH Y-COORDINATES
                 f_data = []
                 for (x, y, w, h) in faces:
                     f_data.append({
                         "center": (x + w/2) / frame.shape[1],
+                        "center_y": (y + h/2) / frame.shape[0], # Normalized Y
                         "area": w * h
                     })
                 # Sort by area to keep most relevant
@@ -124,7 +125,7 @@ def build_gamer_overlay_filter(crop_x_face, crop_w):
     """Titan Gamer: Face Circle Overlay over main gameplay/content."""
     return f"[0:v]split=2[in_main][in_face];[in_main]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1/1[bg];[in_face]scale=-2:300:flags=lanczos,crop=250:250:{crop_x_face}:25,format=yuva420p,geq=lum='p(X,Y)':a='if(gt(sqrt(pow(X-125,2)+pow(Y-125,2)),120),0,255)'[fg];[bg][fg]overlay=20:20:shortest=1,setsar=1/1"
 
-def build_dynamic_filter_complex(zones, crop_x_normal, crop_x_top, crop_x_bottom, crop_w, is_gamer=False, is_reaction=False):
+def build_dynamic_filter_complex(zones, crop_x_normal, crop_x_top, crop_y_top, crop_x_bottom, crop_w, is_gamer=False, is_reaction=False):
     if is_gamer: return build_gamer_overlay_filter(crop_x_normal, crop_w)
 
     if is_reaction:
@@ -143,6 +144,26 @@ def build_dynamic_filter_complex(zones, crop_x_normal, crop_x_top, crop_x_bottom
         vf += "[bg][fg]overlay=(W-w)/2:(H-h)/2"
         return vf
 
+    # TITAN VISION V26: 3D Tracking Logic (X + Y)
+    # We now receive a NORMALIZED Y-COORDINATE for the face (crop_y_top).
+    # We must calculate the crop window for Scale 1200h (2.0x).
+
+    # 1. Output Height for one split part is 600.
+    # 2. Scaled Input Height is 1200 (approx). OR dynamic based on AR.
+    #    Actually scale=-2:1200 forces height 1200.
+    # 3. Target Face Y in pixels = crop_y_top * 1200.
+    # 4. We want this Pixel to be at center of 600 window -> 300.
+    #    So Crop Start Y = TargetY - 300.
+    #    Equation: (crop_y_top * 1200) - 300.
+    #    Clamp between 0 and (1200 - 600) = 600.
+
+    def get_smart_y(normalized_y, offset_factor=0):
+        # offset_factor: 0 for face center. +0.3 for hands (body).
+        target_y = (normalized_y + offset_factor) * 1200
+        start_y = int(target_y - 300)
+        return max(0, min(600, start_y))
+
+    y_top_val = get_smart_y(crop_y_top)
     # 3. Dynamic Switch Logic (Split-4 Architecture)
     enable_sq = " + ".join([f"between(t,{z[0]},{z[1]})" for z in splits])
     vf = "[0:v]split=4[v_bg][v_fg][v_tp][v_bt];"
@@ -152,22 +173,32 @@ def build_dynamic_filter_complex(zones, crop_x_normal, crop_x_top, crop_x_bottom
     vf += f"[v_fg]scale=720:-2:flags=lanczos,setsar=1/1[fg];"
     vf += "[bg][fg]overlay=(W-w)/2:(H-h)/2[v_norm];"
 
-    # Split Path (Titan Harmony Zoom 2.0x - Final Strike)
-    # Scale to 1200 height (2.0x).
-    # TOP: Shift UP (-300px) -> Eyes/Hat Guaranteed.
-    # BOTTOM: Shift DOWN (+200px) -> Hands/Phone/Object.
+    # Split Path (Titan Vision V26.3 - Fit-to-Frame)
+    # Scale to 850 height.
+    # This is conservative to ensure large faces fit fully within the 600px window.
+    # X-Correction: +0.08 Center Bias.
 
-    y_center = "(ih-600)/2"
-    vf += f"[v_tp]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_top}*2.0:{y_center}-300,setsar=1/1[top];"
-    vf += f"[v_bt]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_bottom}*2.0:{y_center}+200,setsar=1/1[bottom];"
+    scale_h = 850
+
+    # Recalculate Y function for 850h
+    def get_smart_y_fit(normalized_y, offset_factor=0):
+        target_y = (normalized_y + offset_factor) * 850
+        start_y = int(target_y - 300)
+        return max(0, min(850 - 600, start_y))
+
+    y_top_val = get_smart_y_fit(crop_y_top, 0)
+    y_bot_val = get_smart_y_fit(crop_y_top, 0.45) # +45% for phone (lower)
+
+    vf += f"[v_tp]scale=-2:{scale_h}:flags=lanczos,crop=720:600:({crop_x_top}+0.08)*{scale_h}/600:{y_top_val},setsar=1/1[top];"
+    vf += f"[v_bt]scale=-2:{scale_h}:flags=lanczos,crop=720:600:({crop_x_bottom}+0.08)*{scale_h}/600:{y_bot_val},setsar=1/1[bottom];"
     vf += f"color=black:s=720x80[bar];"
     vf += "[top][bar][bottom]vstack=inputs=3,scale=720:1280,setsar=1/1[v_split];"
 
     # Optimization: If 100% Split, skip overlay logic
     if len(zones) == 1 and zones[0][2] == "Split":
         simple_vf = "[0:v]split=2[v_tp][v_bt];"
-        simple_vf += f"[v_tp]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_top}*2.0:{y_center}-300,setsar=1/1[top];"
-        simple_vf += f"[v_bt]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_bottom}*2.0:{y_center}+200,setsar=1/1[bottom];"
+        simple_vf += f"[v_tp]scale=-2:{scale_h}:flags=lanczos,crop=720:600:({crop_x_top}+0.08)*{scale_h}/600:{y_top_val},setsar=1/1[top];"
+        simple_vf += f"[v_bt]scale=-2:{scale_h}:flags=lanczos,crop=720:600:({crop_x_bottom}+0.08)*{scale_h}/600:{y_bot_val},setsar=1/1[bottom];"
         simple_vf += f"color=black:s=720x80[bar];"
         simple_vf += "[top][bar][bottom]vstack=inputs=3,scale=720:1280,setsar=1/1"
         return simple_vf
