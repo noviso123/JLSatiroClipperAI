@@ -74,21 +74,22 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
                 g_host = sum(centers_x) / len(centers_x)
                 g_host_y = sum(centers_y) / len(centers_y)
 
-                # Recalculate guest for V26 (Hands/Body Logic)
-                # If we know host is at g_host, content is nearby
-                if g_host < 0.48: guest_v = g_host + 0.15
-                elif g_host > 0.52: guest_v = g_host - 0.15
-                else: guest_v = g_host
+                # Recalculate guest for V27 (Opposite Side Logic)
+                # If host is Left, Content is Right Center (0.75)
+                # If host is Right, Content is Left Center (0.25)
+                # This avoids catching the body/hands if they are near the face.
+                if g_host < 0.5: guest_v = 0.75
+                else: guest_v = 0.25
 
         is_gamer = (settings.get('layout') == 'Modo Gamer')
         is_reaction = (settings.get('layout') == 'Reação (Rosto/Base)')
 
         vf_logic = video_engine.build_dynamic_filter_complex(
             zones,
-            cx_calc_600(local_speaker),
-            cx_calc_600(global_host),
-            g_host_y, # NEW: Vertical Tracker
-            cx_calc_600(guest_v),
+            cx_calc_600(local_speaker), # Legacy for Normal Mode Overlay
+            g_host,   # V27: Normalized Host X
+            g_host_y, # V27: Normalized Host Y
+            guest_v,  # V27: Normalized Guest X
             crop_w,
             is_gamer=is_gamer,
             is_reaction=is_reaction
