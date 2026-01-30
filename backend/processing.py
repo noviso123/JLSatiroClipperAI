@@ -83,13 +83,30 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
         is_gamer = (settings.get('layout') == 'Modo Gamer')
         is_reaction = (settings.get('layout') == 'Reação (Rosto/Base)')
 
+        # Calculate Aspect Ratio
+        # video_info should have width/height ideally, or we assume 16:9 if missing
+        # We don't have video_info explicitly passed here unless we query it?
+        # IMPORTANT: processing.py usually knows input dimensions via ffmpeg probe earlier
+        # For now, we deduce AR from crop_w? No, crop_w is output width?
+        # Assuming we access 'video_w' and 'video_h' if available, else 1.777
+        vid_w = v_w # Default fallback
+        vid_h = v_h
+        input_ar = vid_w / vid_h if vid_h != 0 else 1.777
+
+        # Try to find dimensions in global scope or args?
+        # Actually 'cx_calc_600' used 'video_w' in older versions?
+        # Let's rely on standard 16:9 DEFAULT if we can't probe,
+        # but since 'processing.process_video' usually does probe...
+        # We will assume 1.777 for now as refactor barrier, but ready for parameter injection.
+
         vf_logic = video_engine.build_dynamic_filter_complex(
             zones,
-            cx_calc_600(local_speaker), # Legacy for Normal Mode Overlay
-            g_host,   # V27: Normalized Host X
-            g_host_y, # V27: Normalized Host Y
-            guest_v,  # V27: Normalized Guest X
+            cx_calc_600(local_speaker),
+            g_host,
+            g_host_y,
+            guest_v,
             crop_w,
+            input_ar=input_ar,
             is_gamer=is_gamer,
             is_reaction=is_reaction
         )

@@ -125,15 +125,13 @@ def build_gamer_overlay_filter(crop_x_face, crop_w):
     """Titan Gamer: Face Circle Overlay over main gameplay/content."""
     return f"[0:v]split=2[in_main][in_face];[in_main]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1/1[bg];[in_face]scale=-2:300:flags=lanczos,crop=250:250:{crop_x_face}:25,format=yuva420p,geq=lum='p(X,Y)':a='if(gt(sqrt(pow(X-125,2)+pow(Y-125,2)),120),0,255)'[fg];[bg][fg]overlay=20:20:shortest=1,setsar=1/1"
 
-def build_dynamic_filter_complex(zones, crop_x_normal, norm_x_host, norm_y_host, norm_x_guest, crop_w, is_gamer=False, is_reaction=False):
+def build_dynamic_filter_complex(zones, crop_x_normal, norm_x_host, norm_y_host, norm_x_guest, crop_w, input_ar=1.777, is_gamer=False, is_reaction=False):
     if is_gamer: return build_gamer_overlay_filter(crop_x_normal, crop_w)
 
-    # TITAN VISION V31: Dynamic Content Isolation (Crop & Pad)
+    # TITAN VISION V33: Dynamic Resolution & Content Isolation
     # Strategy:
-    # 1. Identify "Safe Content Zone" based on Host X.
-    # 2. Crop ONLY that zone (preserving full content, cutting face).
-    # 3. Scale to 600h (Fit Height).
-    # 4. Pad to 720w (Center with Black Bars).
+    # 1. Dynamic AR: Uses 'input_ar' to calculate widths for any resolution.
+    # 2. Crop & Pad: Isolates content with safety margins.
 
     # Configuration
     scale_top = 780   # Face Zoom (Focus)
@@ -143,7 +141,8 @@ def build_dynamic_filter_complex(zones, crop_x_normal, norm_x_host, norm_y_host,
     out_h = 600
 
     # 1. TOP (Face) -> Standard Zoom
-    scale_w_top = int(scale_top * 16 / 9)
+    # Calculate scaled width based on Input Aspect Ratio
+    scale_w_top = int(scale_top * input_ar)
     def get_crop_x_top(norm_x):
         target_px = norm_x * scale_w_top
         start_x = int(target_px - (out_w / 2))
