@@ -101,9 +101,9 @@ def get_layout_zones(start_t, dur, face_map):
         if layout == "Split": split_counts += 1
         temp_zones.append(layout)
 
-    # Sticky Logic V25: If clipe has significant split moments, keep Split to maintain continuity
-    if (split_counts / dur) > 0.35:
-        return [(0, dur, "Split")]
+    # Sticky Logic REMOVED for V24.14 (Dynamic Switching)
+    # if (split_counts / dur) > 0.35:
+    #     return [(0, dur, "Split")]
 
     current = None
     last = 0
@@ -221,20 +221,52 @@ def generate_thumbnail(video_path, output_path, job_id, text="TITAN"):
     try:
         img_tmp = output_path.replace('.mp4', '.jpg')
         subprocess.run(['ffmpeg', '-y', '-ss', '00:00:02', '-i', video_path, '-vf', f"drawtext=text='{text}':fontcolor=yellow:fontsize=150:x=(w-text_w)/2:y=(h-text_h)/4:borderw=10:bordercolor=black", '-vframes', '1', img_tmp], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        subprocess.run(['ffmpeg', '-y', '-loop', '1', '-i', img_tmp, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-t', '1.0', '-vf', 'scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1/1', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-ar', '44100', '-ac', '2', output_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(['ffmpeg', '-y', '-loop', '1', '-i', img_tmp, '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100', '-t', '0.1', '-vf', 'scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2,setsar=1/1', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', '-ar', '44100', '-ac', '2', output_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except: pass
 
 def create_narrator_hook(video_path, output_path, text, job_id, narrator_audio_path=None):
     """
-    Titan Resilient Hook: Binds text and audio. Guarantees output existence.
+    Titan Resilient Hook: Zoom Out + Multi-Line Centered Text (Safety Optimized).
     """
     try:
-        # 1. Text Overlay (Safe without fontfile for Windows compatibility)
-        vf = f"[0:v]scale=720:1280,setsar=1/1,drawtext=text='{text}':fontcolor=white:fontsize=80:x=(w-text_w)/2:y=(h-text_h)/2:borderw=5:bordercolor=black[v]"
+        # 1. Text Wrapping Logic (Strict 12 chars for Vertical Screen Safety)
+        words = text.split()
+        lines = []
+        current_line = ""
+        for w in words:
+            if len((current_line + " " + w).strip()) <= 12:
+                current_line = (current_line + " " + w).strip()
+            else:
+                lines.append(current_line)
+                current_line = w
+        if current_line: lines.append(current_line)
 
-        # 2. Audio Strategy: Mix narrator or use original at low vol
+        # Params
+        font_size = 95
+        line_height = 115
+        total_h = len(lines) * line_height
+        start_y = (1280 - total_h) // 2
+
+        # 2. Visual Strategy: Zoom Out (1.2x -> 1.0x), d=1 for motion
+        vf = f"[0:v]scale=720:1280,setsar=1/1,zoompan=z='min(zoom+0.0015,1.2)-0.0015*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=720x1280[v0];"
+
+        # Stack Drawtext filters
+        last_ref = "v0"
+        for i, line in enumerate(lines):
+            # Safe escape for drawtext
+            safe_line = line.replace("'", "").replace(":", "")
+            y_pos = start_y + (i * line_height)
+
+            next_ref = f"v{i+1}"
+            if i == len(lines) - 1: next_ref = "v"
+
+            delim = ";" if i < len(lines) - 1 else ""
+            vf += f"[{last_ref}]drawtext=text='{safe_line}':fontcolor=white:fontsize={font_size}:x=(w-text_w)/2:y={y_pos}:borderw=8:bordercolor=black[{next_ref}]{delim}"
+            last_ref = next_ref
+
+        # 3. Audio Strategy
         if narrator_audio_path and os.path.exists(narrator_audio_path) and os.path.getsize(narrator_audio_path) > 0:
-            af = "[0:a]volume=0.05,aresample=async=1[bg];[1:a]volume=1.0,aresample=async=1[v_a];[bg][v_a]amix=inputs=2:duration=first[a]"
+            af = "[0:a]volume=0.1,aresample=async=1[bg];[1:a]volume=1.5,aresample=async=1[v_a];[bg][v_a]amix=inputs=2:duration=first[a]"
             inputs = ['-i', video_path, '-i', narrator_audio_path]
         else:
             af = "[0:a]volume=1.0,aresample=async=1[a]"
@@ -253,7 +285,6 @@ def create_narrator_hook(video_path, output_path, text, job_id, narrator_audio_p
         res = subprocess.run(cmd, capture_output=True, text=True)
         if res.returncode != 0:
             print(f"⚠️ Erro ao gerar Hook Estético ({job_id}): {res.stderr[-200:]}")
-            # Final Fallback: Literal Copy of the 3s slice to ensure file existence
             shutil.copy(video_path, output_path)
     except Exception as e:
         print(f"❌ Falha Crítica Hook {job_id}: {e}")

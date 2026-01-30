@@ -21,7 +21,11 @@ def run_cert():
     # Face at 0.38 should now trigger Split due to 0.45 threshold
     print("🚀 TESTE 1: DETECÇÃO AUTOMÁTICA (DINÂMICO)...")
     seg = {'start': 130.0, 'end': 135.0}
-    face_map = { 130: {"center": 0.38, "count": 1}, 132: {"center": 0.38, "count": 1}, 134: {"center": 0.38, "count": 1} }
+    face_map = {
+        130: {"count": 1, "faces": [{"center": 0.38, "center_y": 0.35, "area": 0.1}]},
+        132: {"count": 1, "faces": [{"center": 0.38, "center_y": 0.35, "area": 0.1}]},
+        134: {"count": 1, "faces": [{"center": 0.38, "center_y": 0.35, "area": 0.1}]}
+    }
     seg_data = (0, seg, 1, face_map, {'layout': 'Dinâmico (Auto-IA)'}, "AUTO_V13", [], 0.38)
 
     res1 = processing.process_single_segment(seg_data, VIDEO_REAL, WORK_DIR, DRIVE_DIR)

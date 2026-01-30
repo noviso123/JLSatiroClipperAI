@@ -72,8 +72,9 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
                 # Instead of averaging all faces (which breaks in Podcast scenarios),
                 # we identify the DOMINANT FACE (Largest Area) as the Host.
 
-                # Sort faces by Area (Largest first)
-                sorted_faces = sorted(faces, key=lambda x: x['area'], reverse=True)
+                # TITAN VISION V35: Global Host Stability (Fix Inverted Layout)
+                # Select face closest to Global Host Position to prevent Guest hijacking
+                sorted_faces = sorted(faces, key=lambda x: abs(x['center'] - global_host))
                 primary_face = sorted_faces[0]
 
                 g_host = primary_face['center']
@@ -152,7 +153,7 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
             cw['end'] = cw['end'] - start_t
 
         ass_path = os.path.join(work_dir, f"sub_{job_id}.ass")
-        with open(ass_path, "w", encoding="utf-8") as f: f.write(subtitle_engine.generate_karaoke_ass(clip_w))
+        with open(ass_path, "w", encoding="utf-8") as f: f.write(subtitle_engine.generate_karaoke_ass(clip_w, zones))
 
         # Windows-Safe ASS Filter Path
         escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
@@ -173,13 +174,29 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
 
         final_hook = os.path.join(work_dir, f"h_{job_id}.mp4").replace("\\", "/")
         narr_p = os.path.join(work_dir, f"n_{job_id}.mp3")
-        txt_h = random.choice(["O SEGREDO!", "ISSO É INSANO!", "OLHA ISSO!", "VOCÊ SABIA?"])
+        txt_h = random.choice([
+            "VOCÊ NÃO VAI ACREDITAR!",
+            "O SEGREDO REVELADO!",
+            "ISSO MUDA TUDO!",
+            "OLHA O QUE ACONTECEU!",
+            "PRESTE MUITA ATENÇÃO!",
+            "NINGUÉM TE CONTA ISSO!",
+            "A VERDADE APARECEU!",
+            "VOCÊ PRECISA SABER!",
+            "ISSO É IMPOSSÍVEL!",
+            "MENTIRAM PARA VOCÊ!",
+            "O DETALHE SECRETO!",
+            "VOCÊ VAI SE CHOCAR!",
+            "PARE TUDO AGORA!",
+            "A MELHOR PARTE!",
+            "ISSO É INSANO!"
+        ])
         audio_engine.generate_hook_narrator(txt_h, narr_p)
 
         raw_h = os.path.join(work_dir, f"hr_{job_id}.mp4").replace("\\", "/")
         h_start = min(dur * 0.15, max(0, dur - 3.1))
         cmd_hr = [
-            'ffmpeg', '-y', '-ss', str(h_start), '-t', '3', '-i', subtitled_cut,
+            'ffmpeg', '-y', '-ss', str(h_start), '-t', '3', '-i', raw_cut_path,
             '-c:v', 'libx264', '-preset', 'ultrafast',
             '-c:a', 'aac', '-ar', '44100', '-ac', '2',
             '-af', 'aresample=async=1', '-avoid_negative_ts', 'make_zero',
