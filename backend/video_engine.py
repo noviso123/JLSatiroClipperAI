@@ -134,7 +134,7 @@ def build_dynamic_filter_complex(zones, crop_x_normal, norm_x_host, norm_y_host,
 
     # Configuration
     scale_top = 780   # Face Zoom (Focus)
-    scale_bot = 740   # Content Zoom (Optimized to hide host shoulder while showing screen content)
+    scale_bot = 900   # Content Zoom (Extreme zoom to cut duplicate host)
 
     out_w = 720
     out_h = 600

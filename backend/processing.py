@@ -74,10 +74,9 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
                 g_host = sum(centers_x) / len(centers_x)
                 g_host_y = sum(centers_y) / len(centers_y)
 
-                # Recalculate guest for V27 (Opposite Side Logic)
-                # If host is Left, Content is Right Center (0.75)
-                # If host is Right, Content is Left Center (0.25)
-                # This avoids catching the body/hands if they are near the face.
+                # Recalculate guest for V30 (Extreme Isolation)
+                # Scale 900 + Target 0.75 ensures we crop purely the right side (Screen),
+                # cutting off the host's shoulder completely.
                 if g_host < 0.5: guest_v = 0.75
                 else: guest_v = 0.25
 
