@@ -64,9 +64,10 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
             if len(srt) > 1 and abs(srt[1][0] - global_host) > 0.15:
                 guest_v = srt[1][0]
             elif global_host < 0.48:
-                guest_v = 0.82
+                # Content (Phone) is likely in hands, near the body, not far right edge
+                guest_v = global_host + 0.15
             elif global_host > 0.52:
-                guest_v = 0.18
+                guest_v = global_host - 0.15
             else:
                 guest_v = global_host + 0.2 if global_host < 0.5 else global_host - 0.2
 

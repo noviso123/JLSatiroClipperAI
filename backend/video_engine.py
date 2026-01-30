@@ -152,20 +152,27 @@ def build_dynamic_filter_complex(zones, crop_x_normal, crop_x_top, crop_x_bottom
     vf += f"[v_fg]scale=720:-2:flags=lanczos,setsar=1/1[fg];"
     vf += "[bg][fg]overlay=(W-w)/2:(H-h)/2[v_norm];"
 
-    # Split Path (Titan Zoom 2x Logic)
-    # We scale to height 1200 (instead of 600) to create a generic zoom-in effect.
-    # 1920x1080 -> 2133x1200.
-    # Then we crop 720x600 from that.
-    # This effectively verified "Crops" the region of interest.
+    # Split Path (Titan Harmony Zoom 2.0x - Final Strike)
+    # Scale to 1200 height (2.0x).
+    # TOP: Shift UP (-300px) -> Eyes/Hat Guaranteed.
+    # BOTTOM: Shift DOWN (+200px) -> Hands/Phone/Object.
 
-    # We need to adjust crop_x because the width is now doubled (approx).
-    # Since crop_x comes from a calculator based on 600px height, we multiply by 2.
-    vf += f"[v_tp]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_top}*2:0,setsar=1/1[top];"
-    vf += f"[v_bt]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_bottom}*2:0,setsar=1/1[bottom];"
+    y_center = "(ih-600)/2"
+    vf += f"[v_tp]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_top}*2.0:{y_center}-300,setsar=1/1[top];"
+    vf += f"[v_bt]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_bottom}*2.0:{y_center}+200,setsar=1/1[bottom];"
     vf += f"color=black:s=720x80[bar];"
     vf += "[top][bar][bottom]vstack=inputs=3,scale=720:1280,setsar=1/1[v_split];"
 
-    # Merger
+    # Optimization: If 100% Split, skip overlay logic
+    if len(zones) == 1 and zones[0][2] == "Split":
+        simple_vf = "[0:v]split=2[v_tp][v_bt];"
+        simple_vf += f"[v_tp]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_top}*2.0:{y_center}-300,setsar=1/1[top];"
+        simple_vf += f"[v_bt]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_bottom}*2.0:{y_center}+200,setsar=1/1[bottom];"
+        simple_vf += f"color=black:s=720x80[bar];"
+        simple_vf += "[top][bar][bottom]vstack=inputs=3,scale=720:1280,setsar=1/1"
+        return simple_vf
+
+    # Merger for Hybrid Clips
     vf += f"[v_norm][v_split]overlay=enable='{enable_sq}':shortest=1,setsar=1/1"
     return vf
 
