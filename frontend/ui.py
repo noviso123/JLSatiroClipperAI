@@ -178,7 +178,7 @@ with gr.Blocks(title="JLSatiro Clipper AI - V24.1 (TITANIUM)", theme=cobalt_them
                 with gr.Group():
                     gr.Markdown("### ⚙️ Configurações")
                     layout_mode_radio = gr.Radio(
-                        ["Dinâmico (Auto-IA)", "Smart Focus", "Split-Screen (Podcast)", "Modo Gamer"],
+                        ["Dinâmico (Auto-IA)", "Reação (Rosto/Base)", "Smart Focus", "Split-Screen (Podcast)", "Modo Gamer"],
                         label="Estilo de Enquadramento",
                         value="Dinâmico (Auto-IA)"
                     )

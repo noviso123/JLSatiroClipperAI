@@ -42,43 +42,46 @@ def process_single_segment(seg_data, video_path, work_dir, drive_dir):
         zones = video_engine.get_layout_zones(start_t, dur, face_map)
         local_speaker = video_engine.get_crop_from_cache(start_t, dur, face_map)
         v_w, v_h = video_engine.get_video_dimensions(video_path)
-        s_w = int(v_w * (480 / v_h))
-        crop_w = 400
 
-        def cx_calc(val): return max(0, min(s_w - crop_w, int(val * s_w) - (crop_w // 2)))
+        # New Scale Factors for V24.13 (Targeting 600px/640px height)
+        s_w_600 = int(v_w * (600 / v_h))
+        crop_w = 720
+
+        def cx_calc_600(val): return max(0, min(s_w_600 - 720, int(val * s_w_600) - 360))
 
         # Guest determination (Reaction / Split content)
-        centers = [v["center"] if isinstance(v, dict) else v for v in face_map.values()]
+        centers = []
+        for v in face_map.values():
+            if isinstance(v, dict) and "faces" in v and v["faces"]:
+                centers.append(v["faces"][0]["center"])
         guest_v = 0.5
 
-        # If faces are detected (Podcast/Interview)
         if centers:
             cts = {}
             for c in centers: cts[round(c, 1)] = cts.get(round(c, 1), 0) + 1
             srt = sorted(cts.items(), key=lambda x: x[1], reverse=True)
 
             if len(srt) > 1 and abs(srt[1][0] - global_host) > 0.15:
-                guest_v = srt[1][0] # Real second face
-            elif global_host < 0.4:
-                guest_v = 0.82 # CONTENT IS ON RIGHT (Reaction style)
-                print(f"🎬 Titan Reaction: Host on Left ({global_host:.2f}), targetting Right Content (0.82)")
-            elif global_host > 0.6:
-                guest_v = 0.18 # CONTENT IS ON LEFT
-                print(f"🎬 Titan Reaction: Host on Right ({global_host:.2f}), targetting Left Content (0.18)")
+                guest_v = srt[1][0]
+            elif global_host < 0.48:
+                guest_v = 0.82
+            elif global_host > 0.52:
+                guest_v = 0.18
             else:
-                # Same person shifted or centered
                 guest_v = global_host + 0.2 if global_host < 0.5 else global_host - 0.2
 
-        # Gamer Mode Detection: If face is very small or high-up/corner
-        is_gamer = False
-        if centers:
-            # If the best face is small relative to height, it's likely a gamer webcam
-            face_meta = face_map.get(int(start_t), {})
-            if isinstance(face_meta, dict) and face_meta.get("count") == 1:
-                # Basic heuristic: if global host is centered but we are in a 'Gamer' context
-                if settings.get('layout') == 'Gamer (Face Overlay)': is_gamer = True
+        is_gamer = (settings.get('layout') == 'Modo Gamer')
+        is_reaction = (settings.get('layout') == 'Reação (Rosto/Base)')
 
-        vf_logic = video_engine.build_dynamic_filter_complex(zones, cx_calc(local_speaker), cx_calc(global_host), cx_calc(guest_v), crop_w, is_gamer=is_gamer)
+        vf_logic = video_engine.build_dynamic_filter_complex(
+            zones,
+            cx_calc_600(local_speaker),
+            cx_calc_600(global_host),
+            cx_calc_600(guest_v),
+            crop_w,
+            is_gamer=is_gamer,
+            is_reaction=is_reaction
+        )
 
         cmd_base = [
             'ffmpeg', '-y',
@@ -211,7 +214,10 @@ def process_video(url, video_file, hashtags="", layout_mode="Dinâmico (Auto-IA)
 
     g_host = 0.5
     if f_map:
-        centers = [v["center"] if isinstance(v, dict) else v for v in f_map.values()]
+        centers = []
+        for v in f_map.values():
+            if isinstance(v, dict) and "faces" in v and v["faces"]:
+                centers.append(v["faces"][0]["center"])
         if centers:
             cts = {}
             for c in centers: cts[round(c, 1)] = cts.get(round(c, 1), 0) + 1

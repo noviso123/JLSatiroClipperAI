@@ -30,7 +30,7 @@ def get_video_dimensions(video_path):
     return w, h
 
 def scan_face_positions(video_path):
-    print("👁️ Iniciando Scan Facial Global (Smart Crop V3)...")
+    print("👁️ Iniciando Scan Facial Avançado (Titan Vision V25)...")
     face_map = {}
     try:
         cascade_path = get_face_cascade()
@@ -46,14 +46,16 @@ def scan_face_positions(video_path):
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             faces = face_cascade.detectMultiScale(gray, 1.1, 4)
             if len(faces) > 0:
-                max_area = 0
-                best_center = 0.5
+                # V25: Collect up to 2 significant centers (most left and most right)
+                f_data = []
                 for (x, y, w, h) in faces:
-                    area = w * h
-                    if area > max_area:
-                        max_area = area
-                        best_center = (x + w/2) / frame.shape[1]
-                face_map[t] = {"center": best_center, "count": len(faces)}
+                    f_data.append({
+                        "center": (x + w/2) / frame.shape[1],
+                        "area": w * h
+                    })
+                # Sort by area to keep most relevant
+                f_data = sorted(f_data, key=lambda x: x["area"], reverse=True)
+                face_map[t] = {"faces": f_data[:3], "count": len(faces)}
         cap.release()
         return face_map
     except: return {}
@@ -62,38 +64,54 @@ def get_crop_from_cache(start_t, dur, face_map):
     if not face_map: return 0.5
     centers = []
     for t in range(int(start_t), int(start_t + dur)):
-        if t in face_map:
-            val = face_map[t]
-            centers.append(val["center"] if isinstance(val, dict) else val)
+        avail = sorted(face_map.keys())
+        if not avail: continue
+        closest = min(avail, key=lambda x: abs(x - t))
+        meta = face_map[closest]
+        if "faces" in meta and meta["faces"]:
+            centers.append(meta["faces"][0]["center"])
     return sum(centers)/len(centers) if centers else 0.5
 
 def get_layout_zones(start_t, dur, face_map):
-    """Titan Intelligence: Segmental Zone Analysis with Adaptive Tracking."""
+    """Titan Vision V25: Advanced Intelligent Layout Orchestrator."""
     zones = []
-    current_layout = None
-    last_t = 0
+    temp_zones = []
 
-    # Granular analysis every 0.1s is overkill, but we check every 2s for crop shifts
-    CHECK_INTERVAL = 2.0
+    def get_meta(seconds):
+        avail = sorted(face_map.keys())
+        if not avail: return {"faces": [], "count": 0}
+        closest = min(avail, key=lambda x: abs(x - seconds))
+        return face_map[closest]
 
+    split_counts = 0
     for t in range(int(start_t), int(start_t + dur)):
-        is_shifted = False
-        face_count = 1
+        meta = get_meta(t)
+        faces = meta.get("faces", [])
+        count = meta.get("count", 0)
 
-        if t in face_map and isinstance(face_map[t], dict):
-            c = face_map[t].get("center", 0.5)
-            face_count = face_map[t].get("count", 1)
-            if c < 0.35 or c > 0.65: is_shifted = True
+        is_reaction = False
+        if count == 1:
+            c = faces[0]["center"]
+            if c < 0.45 or c > 0.55: is_reaction = True
 
-        layout = "Split" if (face_count >= 2 or is_shifted) else "Normal"
+        is_split = (count >= 2 or is_reaction)
+        layout = "Split" if is_split else "Normal"
 
-        # We trigger a zone change if the layout changes OR if we hit a threshold for tracking
-        if layout != current_layout:
-            if current_layout: zones.append((last_t, t - start_t, current_layout))
-            current_layout = layout
-            last_t = t - start_t
+        if layout == "Split": split_counts += 1
+        temp_zones.append(layout)
 
-    zones.append((last_t, dur, current_layout))
+    # Sticky Logic V25: If clipe has significant split moments, keep Split to maintain continuity
+    if (split_counts / dur) > 0.35:
+        return [(0, dur, "Split")]
+
+    current = None
+    last = 0
+    for i, layout in enumerate(temp_zones):
+        if layout != current:
+            if current: zones.append((last, i, current))
+            current = layout
+            last = i
+    zones.append((last, dur, current))
     return zones
 
 def build_vertical_filter_complex(crop_x, crop_w):
@@ -106,23 +124,50 @@ def build_gamer_overlay_filter(crop_x_face, crop_w):
     """Titan Gamer: Face Circle Overlay over main gameplay/content."""
     return f"[0:v]split=2[in_main][in_face];[in_main]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1/1[bg];[in_face]scale=-2:300:flags=lanczos,crop=250:250:{crop_x_face}:25,format=yuva420p,geq=lum='p(X,Y)':a='if(gt(sqrt(pow(X-125,2)+pow(Y-125,2)),120),0,255)'[fg];[bg][fg]overlay=20:20:shortest=1,setsar=1/1"
 
-def build_dynamic_filter_complex(zones, crop_x_normal, crop_x_top, crop_x_bottom, crop_w, is_gamer=False):
+def build_dynamic_filter_complex(zones, crop_x_normal, crop_x_top, crop_x_bottom, crop_w, is_gamer=False, is_reaction=False):
     if is_gamer: return build_gamer_overlay_filter(crop_x_normal, crop_w)
 
-    # Pre-calculate common properties
-    # [top] is usually the FACE, [bottom] is usually the CONTENT (smartphone)
-    split_vf = f";[0:v]split=2[v_top][v_bot];"
-    split_vf += f"[v_top]scale=-2:640:flags=lanczos,crop={crop_w}:640:{crop_x_top}:0,setsar=1/1[top];"
-    split_vf += f"[v_bot]scale=-2:640:flags=lanczos,crop={crop_w}:640:{crop_x_bottom}:0,setsar=1/1[bottom];"
-    split_vf += "[top][bottom]vstack=inputs=2,scale=720:1280,setsar=1/1[v_split]"
-
-    base_vf = build_vertical_filter_complex(crop_x_normal, crop_w) + "[v_base]"
+    if is_reaction:
+        vf = "[0:v]split=2[v_tp][v_bt];"
+        vf += f"[v_tp]scale=-2:600:flags=lanczos,crop=720:600:{crop_x_top}:0,setsar=1/1[top];"
+        vf += f"[v_bt]scale=-2:600:flags=lanczos,crop=720:600:{crop_x_bottom}:0,setsar=1/1[bottom];"
+        vf += f"color=black:s=720x80[bar];"
+        vf += "[top][bar][bottom]vstack=inputs=3,scale=720:1280,setsar=1/1"
+        return vf
 
     splits = [z for z in zones if z[2] == "Split"]
-    if not splits: return build_vertical_filter_complex(crop_x_normal, crop_w)
+    if not splits:
+        vf = "[0:v]split=2[v_bg][v_fg];"
+        vf += f"[v_bg]scale=-2:480:flags=lanczos,crop={crop_w}:480:{crop_x_normal}:0,gblur=sigma=20,scale=720:1280:flags=lanczos,setsar=1/1[bg];"
+        vf += f"[v_fg]scale=720:-2:flags=lanczos,setsar=1/1[fg];"
+        vf += "[bg][fg]overlay=(W-w)/2:(H-h)/2"
+        return vf
 
-    enable = " + ".join([f"between(t,{z[0]},{z[1]})" for z in splits])
-    return base_vf + split_vf + f";[v_base][v_split]overlay=enable='{enable}':shortest=1,setsar=1/1"
+    # 3. Dynamic Switch Logic (Split-4 Architecture)
+    enable_sq = " + ".join([f"between(t,{z[0]},{z[1]})" for z in splits])
+    vf = "[0:v]split=4[v_bg][v_fg][v_tp][v_bt];"
+
+    # Normal Path (Full Height Logic)
+    vf += f"[v_bg]scale=-2:1280:flags=lanczos,crop={crop_w}:1280:{crop_x_normal}:0,gblur=sigma=20,scale=720:1280:flags=lanczos,setsar=1/1[bg];"
+    vf += f"[v_fg]scale=720:-2:flags=lanczos,setsar=1/1[fg];"
+    vf += "[bg][fg]overlay=(W-w)/2:(H-h)/2[v_norm];"
+
+    # Split Path (Titan Zoom 2x Logic)
+    # We scale to height 1200 (instead of 600) to create a generic zoom-in effect.
+    # 1920x1080 -> 2133x1200.
+    # Then we crop 720x600 from that.
+    # This effectively verified "Crops" the region of interest.
+
+    # We need to adjust crop_x because the width is now doubled (approx).
+    # Since crop_x comes from a calculator based on 600px height, we multiply by 2.
+    vf += f"[v_tp]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_top}*2:0,setsar=1/1[top];"
+    vf += f"[v_bt]scale=-2:1200:flags=lanczos,crop=720:600:{crop_x_bottom}*2:0,setsar=1/1[bottom];"
+    vf += f"color=black:s=720x80[bar];"
+    vf += "[top][bar][bottom]vstack=inputs=3,scale=720:1280,setsar=1/1[v_split];"
+
+    # Merger
+    vf += f"[v_norm][v_split]overlay=enable='{enable_sq}':shortest=1,setsar=1/1"
+    return vf
 
 def get_best_encoder():
     try:
