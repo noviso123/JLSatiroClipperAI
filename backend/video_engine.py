@@ -128,43 +128,54 @@ def build_gamer_overlay_filter(crop_x_face, crop_w):
 def build_dynamic_filter_complex(zones, crop_x_normal, norm_x_host, norm_y_host, norm_x_guest, crop_w, is_gamer=False, is_reaction=False):
     if is_gamer: return build_gamer_overlay_filter(crop_x_normal, crop_w)
 
-    # TITAN VISION V27.2: Hybrid Scaling Engine
-    # Top (Face): High Zoom (780px) for immersion and focus.
-    # Bottom (Content): Fit-to-Height (600px) for maximum context visibility.
+    # TITAN VISION V31: Dynamic Content Isolation (Crop & Pad)
+    # Strategy:
+    # 1. Identify "Safe Content Zone" based on Host X.
+    # 2. Crop ONLY that zone (preserving full content, cutting face).
+    # 3. Scale to 600h (Fit Height).
+    # 4. Pad to 720w (Center with Black Bars).
 
     # Configuration
     scale_top = 780   # Face Zoom (Focus)
-    scale_bot = 900   # Content Zoom (Extreme zoom to cut duplicate host)
+    # scale_bot NOT USED. We derive scale from crop.
 
     out_w = 720
     out_h = 600
 
-    def get_crop_x(norm_x, current_scale):
-        # Calculate width for this specific scale
-        # 16:9 Aspect Ratio Assumption
-        current_w = int(current_scale * 16 / 9)
-
-        target_px = norm_x * current_w
+    # 1. TOP (Face) -> Standard Zoom
+    scale_w_top = int(scale_top * 16 / 9)
+    def get_crop_x_top(norm_x):
+        target_px = norm_x * scale_w_top
         start_x = int(target_px - (out_w / 2))
-        return max(0, min(current_w - out_w, start_x))
+        return max(0, min(scale_w_top - out_w, start_x))
 
-    def get_crop_y(norm_y, current_scale, offset_scale=0):
-        target_px = norm_y * current_scale
-        target_px += offset_scale
+    def get_crop_y_top(norm_y):
+        target_px = norm_y * scale_top
         start_y = int(target_px - (out_h / 2))
-        return max(0, min(current_scale - out_h, start_y))
+        return max(0, min(scale_top - out_h, start_y))
 
-    # 1. TOP (Face) -> Uses scale_top
-    tx_top = get_crop_x(norm_x_host, scale_top)
-    ty_top = get_crop_y(norm_y_host, scale_top, 0)
+    tx_top = get_crop_x_top(norm_x_host)
+    ty_top = get_crop_y_top(norm_y_host)
 
-    # 2. BOTTOM (Content) -> Uses scale_bot
-    #    With scale 600, we fit the entire height effortlessly.
-    #    We assume content shouldn't be vertically offset much,
-    #    as 600h input fits 600h output perfectly (start_y=0).
-    #    But get_crop_y will figure it out if target is center.
-    tx_bot = get_crop_x(norm_x_guest, scale_bot)
-    ty_bot = get_crop_y(0.5, scale_bot) # Center Y is safest for Fit-to-Height
+    # 2. BOTTOM (Content) -> Dynamic Split Logic
+    # We construct a specific crop filter string based on host position.
+
+    # Safety Margin to cut face (25% of width approx - Aggressive Isolation)
+    safe_margin = 0.25
+
+    if norm_x_host < 0.5:
+        # Host Left. Content Right.
+        # Crop Start = HostX + Margin
+        # Clamp start to max 0.8 to avoid empty crop if host is too far right? No, host is < 0.5.
+        # Max start = 0.5 + 0.25 = 0.75. Safe.
+        c_start = norm_x_host + safe_margin
+        crop_filter = f"crop=iw*(1-{c_start:.3f}):ih:iw*{c_start:.3f}:0"
+    else:
+        # Host Right. Content Left.
+        # Crop Start = 0
+        # Crop Width = HostX - Margin
+        c_end = norm_x_host - safe_margin
+        crop_filter = f"crop=iw*{c_end:.3f}:ih:0:0"
 
     # 3. Dynamic Switch Logic
     splits = [z for z in zones if z[2] == "Split"]
@@ -177,9 +188,13 @@ def build_dynamic_filter_complex(zones, crop_x_normal, norm_x_host, norm_y_host,
     vf += f"[v_fg]scale=720:-2:flags=lanczos,setsar=1/1[fg];"
     vf += "[bg][fg]overlay=(W-w)/2:(H-h)/2[v_norm];"
 
-    # Split Path (V27.2 Hybrid)
+    # Split Path (V31 Dynamic Pad)
+    # Top: Standard
     vf += f"[v_tp]scale=-2:{scale_top}:flags=lanczos,crop={out_w}:{out_h}:{tx_top}:{ty_top},setsar=1/1[top];"
-    vf += f"[v_bt]scale=-2:{scale_bot}:flags=lanczos,crop={out_w}:{out_h}:{tx_bot}:{ty_bot},setsar=1/1[bottom];"
+
+    # Bottom: Crop -> Scale Height 600 -> Pad Center
+    vf += f"[v_bt]{crop_filter},scale=-2:600:flags=lanczos,pad=720:600:(720-iw)/2:(600-ih)/2:black,setsar=1/1[bottom];"
+
     vf += f"color=black:s=720x80[bar];"
     vf += "[top][bar][bottom]vstack=inputs=3,scale=720:1280,setsar=1/1[v_split];"
 
@@ -187,7 +202,7 @@ def build_dynamic_filter_complex(zones, crop_x_normal, norm_x_host, norm_y_host,
     if len(zones) == 1 and zones[0][2] == "Split":
         simple_vf = "[0:v]split=2[v_tp][v_bt];"
         simple_vf += f"[v_tp]scale=-2:{scale_top}:flags=lanczos,crop={out_w}:{out_h}:{tx_top}:{ty_top},setsar=1/1[top];"
-        simple_vf += f"[v_bt]scale=-2:{scale_bot}:flags=lanczos,crop={out_w}:{out_h}:{tx_bot}:{ty_bot},setsar=1/1[bottom];"
+        simple_vf += f"[v_bt]{crop_filter},scale=-2:600:flags=lanczos,pad=720:600:(720-iw)/2:(600-ih)/2:black,setsar=1/1[bottom];"
         simple_vf += f"color=black:s=720x80[bar];"
         simple_vf += "[top][bar][bottom]vstack=inputs=3,scale=720:1280,setsar=1/1"
         return simple_vf
